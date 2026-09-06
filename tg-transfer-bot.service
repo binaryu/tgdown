@@ -10,9 +10,9 @@ WorkingDirectory=/opt/tg-transfer-bot
 EnvironmentFile=/opt/tg-transfer-bot/.env
 ExecStart=/opt/tg-transfer-bot/tg-transfer-bot
 
-# 保护 1GB 内存机器：限制常驻与子进程总内存上限 150MB
-MemoryMax=150M
-MemoryHigh=100M
+Restart=always
+RestartSec=5s
+
 Nice=10
 
 [Install]
