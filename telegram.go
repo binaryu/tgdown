@@ -279,3 +279,27 @@ func (c *TelegramClient) DeleteMessage(ctx context.Context, chatID int64, messag
 	}
 	return nil
 }
+
+// BotCommand represents a Telegram bot command definition
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
+// SetMyCommands registers bot commands to Telegram menu
+func (c *TelegramClient) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	reqData := map[string]any{
+		"commands": commands,
+	}
+
+	var res APIResponse[bool]
+	if err := c.postJSON(ctx, c.httpClient, "setMyCommands", reqData, &res); err != nil {
+		return fmt.Errorf("设置命令菜单失败: %w", err)
+	}
+
+	if !res.OK {
+		return fmt.Errorf("TG API 设置命令菜单失败 [%d]: %s", res.ErrorCode, res.Description)
+	}
+
+	return nil
+}

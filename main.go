@@ -65,6 +65,25 @@ func main() {
 		cfg.APIBase, cfg.DownloadDir, cfg.TaskTimeout, cfg.ThrottleInterval)
 	log.Printf("🔒 白名单 Admin ID 总计: %d 个", len(cfg.AdminIDs))
 
+	// 自动向 Telegram 注册快捷命令菜单列表 (客户端输入 / 或点击菜单时直接弹出)
+	botCommands := []BotCommand{
+		{Command: "down", Description: "离线下载并转存 (支持aria2c与流媒体)"},
+		{Command: "ytdl", Description: "流媒体提取 (YouTube/B站/Twitter等)"},
+		{Command: "status", Description: "查看系统内存/Swap与任务状态"},
+		{Command: "update", Description: "在线自更新至最新版本"},
+		{Command: "curl", Description: "执行系统原生 curl 诊断"},
+		{Command: "wget", Description: "执行系统原生 wget 诊断"},
+		{Command: "cancel", Description: "强制中止当前正在执行的任务"},
+		{Command: "help", Description: "查看使用帮助文档"},
+	}
+	go func() {
+		if err := bot.SetMyCommands(ctx, botCommands); err != nil {
+			log.Printf("⚠️ 注册 Telegram 命令菜单失败: %v", err)
+		} else {
+			log.Printf("✅ 已成功向 Telegram 注册快捷命令菜单 (%d 个命令)", len(botCommands))
+		}
+	}()
+
 	// 检查是否有由于 /update 触发的重启状态文件，若有则闭环编辑/回执成功通知
 	go CheckAndNotifyRestart(ctx, bot)
 
