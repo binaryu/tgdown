@@ -215,6 +215,57 @@ func (c *TelegramClient) SendDocument(ctx context.Context, chatID int64, fileURI
 	return res.Result, nil
 }
 
+// SendVideo sends a local video file using file:/// protocol with streaming support
+func (c *TelegramClient) SendVideo(ctx context.Context, chatID int64, fileURI string, caption string, parseMode string) (*Message, error) {
+	reqData := map[string]any{
+		"chat_id":            chatID,
+		"video":              fileURI,
+		"supports_streaming": true,
+	}
+	if caption != "" {
+		reqData["caption"] = caption
+	}
+	if parseMode != "" {
+		reqData["parse_mode"] = parseMode
+	}
+
+	var res APIResponse[*Message]
+	if err := c.postJSON(ctx, c.httpClient, "sendVideo", reqData, &res); err != nil {
+		return nil, err
+	}
+
+	if !res.OK {
+		return nil, fmt.Errorf("TG API 发送视频失败 [%d]: %s", res.ErrorCode, res.Description)
+	}
+
+	return res.Result, nil
+}
+
+// SendAudio sends a local audio file using file:/// protocol
+func (c *TelegramClient) SendAudio(ctx context.Context, chatID int64, fileURI string, caption string, parseMode string) (*Message, error) {
+	reqData := map[string]any{
+		"chat_id": chatID,
+		"audio":   fileURI,
+	}
+	if caption != "" {
+		reqData["caption"] = caption
+	}
+	if parseMode != "" {
+		reqData["parse_mode"] = parseMode
+	}
+
+	var res APIResponse[*Message]
+	if err := c.postJSON(ctx, c.httpClient, "sendAudio", reqData, &res); err != nil {
+		return nil, err
+	}
+
+	if !res.OK {
+		return nil, fmt.Errorf("TG API 发送音频失败 [%d]: %s", res.ErrorCode, res.Description)
+	}
+
+	return res.Result, nil
+}
+
 // DeleteMessage deletes a message
 func (c *TelegramClient) DeleteMessage(ctx context.Context, chatID int64, messageID int64) error {
 	reqData := map[string]any{

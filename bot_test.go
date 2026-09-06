@@ -223,6 +223,17 @@ func TestParseDownArgs(t *testing.T) {
 	if p3.Headers[0] != "Authorization: Bearer token123" || p3.Headers[1] != "Cookie: session=abc; uid=1" {
 		t.Errorf("p3 Header 内容错误: %+v", p3.Headers)
 	}
+
+	// 4. 带 --doc 和 --video
+	p4, err := ParseDownArgs("https://example.com/file.mp4 --doc")
+	if err != nil || p4.SendAs != "doc" {
+		t.Fatalf("p4 --doc 失败: %+v", p4)
+	}
+
+	p5, err := ParseDownArgs("https://example.com/file.mp4 --video")
+	if err != nil || p5.SendAs != "video" {
+		t.Fatalf("p5 --video 失败: %+v", p5)
+	}
 }
 
 func TestValidateSafeArgs(t *testing.T) {

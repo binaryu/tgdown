@@ -115,8 +115,8 @@ func handleMessage(
 针对极低资源宿主机设计，基于 aria2c 与 Local Bot API 本地文件直传。
 
 📌 **支持指令**:
-• /down <URL> [重命名] [-H "Header"] [--cookie "Cookie"]
-  多连接断点续传下载并秒级转存（支持鉴权 Token / Cookie / Referer）。
+• /down <URL> [重命名] [--doc/--video] [-H "Header"] [--cookie "Cookie"]
+  多连接断点续传下载并转存（默认智能识别视频媒体流播放；支持 --doc 强制发送为原文件）。
 • /curl <参数...>
   系统原生 curl 诊断执行，自动截断 3500 字符以内。
 • /wget <参数...>

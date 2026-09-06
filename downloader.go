@@ -35,6 +35,7 @@ type DownTaskParams struct {
 	URL        string
 	CustomName string
 	Headers    []string
+	SendAs     string // "auto", "video", "doc", "audio"
 }
 
 // ParseDownArgs parses the argument string of /down, supporting URL, custom name, and -H/--header/--cookie
@@ -44,12 +45,28 @@ func ParseDownArgs(rawInput string) (*DownTaskParams, error) {
 		return nil, errors.New("缺少下载链接")
 	}
 
-	params := &DownTaskParams{}
+	params := &DownTaskParams{
+		SendAs: "auto",
+	}
 	var positional []string
 
 	for i := 0; i < len(tokens); i++ {
 		token := tokens[i]
 		lower := strings.ToLower(token)
+
+		// 匹配发送模式: --video / --doc / --audio
+		if token == "--video" || token == "--as=video" || token == "--media" {
+			params.SendAs = "video"
+			continue
+		}
+		if token == "--doc" || token == "--document" || token == "--file" || token == "--as=doc" || token == "--as=file" {
+			params.SendAs = "doc"
+			continue
+		}
+		if token == "--audio" || token == "--as=audio" {
+			params.SendAs = "audio"
+			continue
+		}
 
 		// 匹配 -H "Header: Value" 或 --header "Header: Value"
 		if token == "-H" || token == "--header" {
@@ -278,11 +295,22 @@ func (d *Downloader) DownloadAndTransfer(ctx context.Context, chatID int64, para
 		return errors.New(errMsg)
 	}
 
-	// 6. 更新状态为转存中 (使用普通文本避免文件名中特殊字符如 _ [ ] 破坏 Markdown 解析)
+	// 6. 确定转存模式 (video / audio / doc)
 	humanSize := formatFileSize(fileSize)
 	fileName := filepath.Base(targetFile)
-	transferringText := fmt.Sprintf("🚀 下载完成！\n📦 文件名: %s\n💾 大小: %s\n正在通过 Local Bot API 转存至 Telegram...", fileName, humanSize)
-	_, _ = d.bot.EditMessageText(ctx, chatID, statusMsgID, transferringText, "")
+	ext := strings.ToLower(filepath.Ext(targetFile))
+
+	sendMode := params.SendAs
+	if sendMode == "" || sendMode == "auto" {
+		switch ext {
+		case ".mp4", ".m4v", ".mov", ".webm", ".mkv":
+			sendMode = "video"
+		case ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wav", ".opus":
+			sendMode = "audio"
+		default:
+			sendMode = "doc"
+		}
+	}
 
 	// 核心架构 2：使用 file:/// 协议，严禁将大文件读入 Bot 进程内存
 	// 如果配置了容器内映射目录 (例如 Docker 挂载)，自动转换宿主机路径为容器内部路径
@@ -294,11 +322,36 @@ func (d *Downloader) DownloadAndTransfer(ctx context.Context, chatID int64, para
 	}
 
 	fileURI := "file://" + sendPath
-	caption := fmt.Sprintf("📄 %s (%s)", fileName, humanSize)
+	caption := fmt.Sprintf("📦 %s (%s)", fileName, humanSize)
 
-	_, err = d.bot.SendDocument(ctx, chatID, fileURI, caption, "")
-	if err != nil {
-		errMsg := fmt.Sprintf("❌ Telegram Local API 转存文件失败: %v", err)
+	// 根据模式执行分发，若视频/音频格式异常则自动安全降级为文档文件转存
+	var sendErr error
+	if sendMode == "video" {
+		transferringText := fmt.Sprintf("🚀 下载完成！\n📦 视频文件: %s\n💾 大小: %s\n正在作为 [流式播放视频] 转存至 Telegram...", fileName, humanSize)
+		_, _ = d.bot.EditMessageText(ctx, chatID, statusMsgID, transferringText, "")
+
+		_, sendErr = d.bot.SendVideo(ctx, chatID, fileURI, caption, "")
+		if sendErr != nil {
+			// 如果由于某些特殊编码导致 sendVideo 报错，自动优雅降级为 sendDocument
+			_, sendErr = d.bot.SendDocument(ctx, chatID, fileURI, caption, "")
+		}
+	} else if sendMode == "audio" {
+		transferringText := fmt.Sprintf("🚀 下载完成！\n📦 音频文件: %s\n💾 大小: %s\n正在作为 [音频媒体] 转存至 Telegram...", fileName, humanSize)
+		_, _ = d.bot.EditMessageText(ctx, chatID, statusMsgID, transferringText, "")
+
+		_, sendErr = d.bot.SendAudio(ctx, chatID, fileURI, caption, "")
+		if sendErr != nil {
+			_, sendErr = d.bot.SendDocument(ctx, chatID, fileURI, caption, "")
+		}
+	} else {
+		transferringText := fmt.Sprintf("🚀 下载完成！\n📦 文档文件: %s\n💾 大小: %s\n正在作为 [原始文档] 转存至 Telegram...", fileName, humanSize)
+		_, _ = d.bot.EditMessageText(ctx, chatID, statusMsgID, transferringText, "")
+
+		_, sendErr = d.bot.SendDocument(ctx, chatID, fileURI, caption, "")
+	}
+
+	if sendErr != nil {
+		errMsg := fmt.Sprintf("❌ Telegram Local API 转存文件失败: %v", sendErr)
 		_, _ = d.bot.EditMessageText(ctx, chatID, statusMsgID, errMsg, "")
 		return errors.New(errMsg)
 	}
