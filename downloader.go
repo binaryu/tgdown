@@ -30,8 +30,112 @@ func NewDownloader(cfg *Config, bot *TelegramClient) *Downloader {
 	}
 }
 
+// DownTaskParams holds parsed parameters for /down command
+type DownTaskParams struct {
+	URL        string
+	CustomName string
+	Headers    []string
+}
+
+// ParseDownArgs parses the argument string of /down, supporting URL, custom name, and -H/--header/--cookie
+func ParseDownArgs(rawInput string) (*DownTaskParams, error) {
+	tokens := parseArgs(rawInput)
+	if len(tokens) == 0 {
+		return nil, errors.New("缺少下载链接")
+	}
+
+	params := &DownTaskParams{}
+	var positional []string
+
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
+		lower := strings.ToLower(token)
+
+		// 匹配 -H "Header: Value" 或 --header "Header: Value"
+		if token == "-H" || token == "--header" {
+			if i+1 >= len(tokens) {
+				return nil, errors.New("`-H / --header` 缺少对应的 Header 键值对")
+			}
+			headerVal := sanitizeHeader(tokens[i+1])
+			if headerVal != "" {
+				params.Headers = append(params.Headers, headerVal)
+			}
+			i++
+			continue
+		} else if strings.HasPrefix(lower, "--header=") {
+			val := sanitizeHeader(token[len("--header="):])
+			if val != "" {
+				params.Headers = append(params.Headers, val)
+			}
+			continue
+		}
+
+		// 匹配 --cookie "key=val" 或 -b "key=val"
+		if token == "--cookie" || token == "-b" {
+			if i+1 >= len(tokens) {
+				return nil, errors.New("`--cookie` 缺少对应的 Cookie 字符串")
+			}
+			cookieVal := sanitizeHeader(tokens[i+1])
+			if cookieVal != "" {
+				params.Headers = append(params.Headers, "Cookie: "+cookieVal)
+			}
+			i++
+			continue
+		} else if strings.HasPrefix(lower, "--cookie=") {
+			cookieVal := sanitizeHeader(token[len("--cookie="):])
+			if cookieVal != "" {
+				params.Headers = append(params.Headers, "Cookie: "+cookieVal)
+			}
+			continue
+		}
+
+		// 匹配 --referer "https://..." 或 -e "https://..."
+		if token == "--referer" || token == "-e" {
+			if i+1 >= len(tokens) {
+				return nil, errors.New("`--referer` 缺少对应的 Referer 地址")
+			}
+			refVal := sanitizeHeader(tokens[i+1])
+			if refVal != "" {
+				params.Headers = append(params.Headers, "Referer: "+refVal)
+			}
+			i++
+			continue
+		} else if strings.HasPrefix(lower, "--referer=") {
+			refVal := sanitizeHeader(token[len("--referer="):])
+			if refVal != "" {
+				params.Headers = append(params.Headers, "Referer: "+refVal)
+			}
+			continue
+		}
+
+		// 其他参数视为位置参数 (URL 或自定义文件名)
+		positional = append(positional, token)
+	}
+
+	if len(positional) == 0 {
+		return nil, errors.New("未检测到有效的 URL 链接")
+	}
+
+	params.URL = positional[0]
+	if len(positional) > 1 {
+		params.CustomName = positional[1]
+	}
+
+	return params, nil
+}
+
+func sanitizeHeader(h string) string {
+	h = strings.TrimSpace(h)
+	// 剔除换行符，防止 HTTP 头部注入
+	h = strings.ReplaceAll(h, "\r", "")
+	h = strings.ReplaceAll(h, "\n", "")
+	return h
+}
+
 // DownloadAndTransfer handles aria2c download, progress throttling, and local file dispatch
-func (d *Downloader) DownloadAndTransfer(ctx context.Context, chatID int64, targetURL string, customName string) error {
+func (d *Downloader) DownloadAndTransfer(ctx context.Context, chatID int64, params *DownTaskParams) error {
+	targetURL := params.URL
+	customName := params.CustomName
 	// 1. 创建任务独立临时目录 (确保隔离与原子清理)
 	taskID := fmt.Sprintf("down_%d", time.Now().UnixNano())
 	taskDir := filepath.Join(d.cfg.DownloadDir, taskID)
@@ -78,6 +182,11 @@ func (d *Downloader) DownloadAndTransfer(ctx context.Context, chatID int64, targ
 		if cleanName != "" && cleanName != "." && cleanName != "/" {
 			args = append(args, "--out="+cleanName)
 		}
+	}
+
+	// 注入自定义请求头 (例如 Cookie、Authorization: Bearer 等)
+	for _, h := range params.Headers {
+		args = append(args, "--header="+h)
 	}
 
 	args = append(args, targetURL)

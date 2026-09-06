@@ -196,6 +196,35 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestParseDownArgs(t *testing.T) {
+	// 1. 基础链接
+	p1, err := ParseDownArgs("https://example.com/file.zip")
+	if err != nil || p1.URL != "https://example.com/file.zip" || p1.CustomName != "" {
+		t.Fatalf("p1 失败: %+v, err=%v", p1, err)
+	}
+
+	// 2. 带重命名
+	p2, err := ParseDownArgs("https://example.com/file.zip my_movie.mp4")
+	if err != nil || p2.URL != "https://example.com/file.zip" || p2.CustomName != "my_movie.mp4" {
+		t.Fatalf("p2 失败: %+v, err=%v", p2, err)
+	}
+
+	// 3. 带 -H 和 --cookie
+	p3, err := ParseDownArgs(`https://example.com/data.tar backup.tar -H "Authorization: Bearer token123" --cookie "session=abc; uid=1" -H "User-Agent: CustomBot"`)
+	if err != nil {
+		t.Fatalf("p3 解析失败: %v", err)
+	}
+	if p3.URL != "https://example.com/data.tar" || p3.CustomName != "backup.tar" {
+		t.Errorf("p3 基础字段错误: %+v", p3)
+	}
+	if len(p3.Headers) != 3 {
+		t.Fatalf("p3 Header 数量错误: 期望 3, 得到 %d (%+v)", len(p3.Headers), p3.Headers)
+	}
+	if p3.Headers[0] != "Authorization: Bearer token123" || p3.Headers[1] != "Cookie: session=abc; uid=1" {
+		t.Errorf("p3 Header 内容错误: %+v", p3.Headers)
+	}
+}
+
 func TestValidateSafeArgs(t *testing.T) {
 	// 1. curl 正常参数
 	args, err := validateSafeArgs("curl", []string{"-I", "https://example.com"})

@@ -141,19 +141,18 @@ func handleMessage(
 
 	case "/down":
 		if args == "" {
-			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ 请提供下载链接，格式: `/down <URL> [自定义重命名]`", "Markdown")
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ 请提供下载链接，格式:\n`/down <URL> [可选重命名] [-H \"Header: val\"] [--cookie \"cookies\"]`", "Markdown")
 			return
 		}
 
-		argParts := strings.Fields(args)
-		targetURL := argParts[0]
-		var customName string
-		if len(argParts) > 1 {
-			customName = argParts[1]
+		params, err := ParseDownArgs(args)
+		if err != nil {
+			_, _ = bot.SendMessage(parentCtx, chatID, fmt.Sprintf("⚠️ 参数解析错误: %v", err), "")
+			return
 		}
 
 		// 简单协议校验
-		lowerURL := strings.ToLower(targetURL)
+		lowerURL := strings.ToLower(params.URL)
 		if !strings.HasPrefix(lowerURL, "http://") &&
 			!strings.HasPrefix(lowerURL, "https://") &&
 			!strings.HasPrefix(lowerURL, "ftp://") &&
@@ -163,7 +162,7 @@ func handleMessage(
 		}
 
 		taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
-		taskName := fmt.Sprintf("/down %s", targetURL)
+		taskName := fmt.Sprintf("/down %s", params.URL)
 
 		// 核心约束 1：单任务排队/互斥锁
 		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
@@ -176,8 +175,8 @@ func handleMessage(
 			defer taskMgr.Release()
 			defer cancel()
 
-			log.Printf("▶️ 开始处理下载任务: URL=%s, 自定义名=%s", targetURL, customName)
-			err := downloader.DownloadAndTransfer(taskCtx, chatID, targetURL, customName)
+			log.Printf("▶️ 开始处理下载任务: URL=%s, 自定义名=%s, 自定义Header=%d个", params.URL, params.CustomName, len(params.Headers))
+			err := downloader.DownloadAndTransfer(taskCtx, chatID, params)
 			if err != nil {
 				log.Printf("❌ 下载/转存任务失败: %v", err)
 			} else {

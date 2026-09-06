@@ -38,7 +38,7 @@
 
 | 指令 | 说明 | 示例 |
 | :--- | :--- | :--- |
-| `/down <URL> [可选重命名]` | 唤起 aria2c 下载并秒级转存至 Telegram 对话中 | `/down https://example.com/file.zip backup.zip` |
+| `/down <URL> [可选重命名] [额外参数]` | 唤起 aria2c 下载并秒级转存（支持 Cookie / Token / Referer） | `/down https://example.com/file.zip backup.zip -H "Authorization: Bearer xxx" --cookie "session=abc"` |
 | `/curl <参数...>` | 原样透传执行系统 curl 诊断，超出 3500 字符自动截断 | `/curl -I https://cloudflare.com` |
 | `/wget <参数...>` | 原样透传执行系统 wget 诊断，Markdown 等宽回显 | `/wget -q -O - https://httpbin.org/ip` |
 | `/status` 或 `/ping` | 实时查看宿主机物理内存、Swap (`/proc/meminfo`) 与任务排队状态 | `/status` |
