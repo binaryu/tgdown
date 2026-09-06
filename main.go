@@ -115,14 +115,16 @@ func handleMessage(
 针对极低资源宿主机设计，基于 aria2c 与 Local Bot API 本地文件直传。
 
 📌 **支持指令**:
-• /down <URL> [自定义重命名(可选)]
-  唤起 aria2c 多连接断点续传，并通过 Local API 秒级转存。
+• /down <URL> [重命名] [-H "Header"] [--cookie "Cookie"]
+  多连接断点续传下载并秒级转存（支持鉴权 Token / Cookie / Referer）。
 • /curl <参数...>
   系统原生 curl 诊断执行，自动截断 3500 字符以内。
 • /wget <参数...>
-  系统原生 wget 诊断执行，自动截断 3500 字符以内。
+  系统原生 wget 诊断执行，Markdown 等宽回显。
 • /status 或 /ping
   查看当前机器内存/Swap (/proc/meminfo) 与任务队列状态。
+• /update [force]
+  从 GitHub Releases 检查并自动下载最新二进制无缝热重载。
 • /cancel
   强制取消当前正在执行的任务并清理磁盘。`
 		_, _ = bot.SendMessage(parentCtx, chatID, helpText, "Markdown")
@@ -138,6 +140,27 @@ func handleMessage(
 		} else {
 			_, _ = bot.SendMessage(parentCtx, chatID, "ℹ️ 当前没有正在运行的任务可取消。", "")
 		}
+
+	case "/update":
+		force := strings.Contains(strings.ToLower(args), "force")
+		taskCtx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
+		taskName := "在线更新 Bot"
+
+		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+			cancel()
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前有任务正在运行，请等待其完成后再更新。", "Markdown")
+			return
+		}
+
+		go func() {
+			defer taskMgr.Release()
+			defer cancel()
+
+			err := CheckAndPerformUpdate(taskCtx, bot, chatID, force)
+			if err != nil {
+				log.Printf("❌ 在线更新失败: %v", err)
+			}
+		}()
 
 	case "/down":
 		if args == "" {

@@ -109,8 +109,8 @@ func FormatSystemStatus(tm *TaskManager) string {
 	runtime.ReadMemStats(&m)
 	allocMB := float64(m.Alloc) / (1024.0 * 1024.0)
 	sysMB := float64(m.Sys) / (1024.0 * 1024.0)
-	sb.WriteString(fmt.Sprintf("🤖 **Bot 进程常驻状态**:\n   - 堆活跃内存: `%.2f MB`\n   - 系统申请内存 (Sys): `%.2f MB`\n   - GC 次数: `%d`\n   - 当前 Goroutine: `%d`\n\n",
-		allocMB, sysMB, m.NumGC, runtime.NumGoroutine()))
+	sb.WriteString(fmt.Sprintf("🤖 **Bot 进程状态 (版本: `%s`)**:\n   - 堆活跃内存: `%.2f MB`\n   - 系统申请内存 (Sys): `%.2f MB`\n   - GC 次数: `%d`\n   - 当前 Goroutine: `%d`\n\n",
+		AppVersion, allocMB, sysMB, m.NumGC, runtime.NumGoroutine()))
 
 	// 3. 任务队列/互斥锁状态
 	_, taskDesc := tm.GetStatus()

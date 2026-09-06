@@ -42,6 +42,7 @@
 | `/curl <参数...>` | 原样透传执行系统 curl 诊断，超出 3500 字符自动截断 | `/curl -I https://cloudflare.com` |
 | `/wget <参数...>` | 原样透传执行系统 wget 诊断，Markdown 等宽回显 | `/wget -q -O - https://httpbin.org/ip` |
 | `/status` 或 `/ping` | 实时查看宿主机物理内存、Swap (`/proc/meminfo`) 与任务排队状态 | `/status` |
+| `/update [force]` | 从 GitHub Releases 检查并自动下载最新二进制无缝热重载 | `/update` 或 `/update force` |
 | `/cancel` | 强制终止当前正在执行的子进程任务并释放磁盘与锁 | `/cancel` |
 | `/help` | 查看帮助文档 | `/help` |
 
