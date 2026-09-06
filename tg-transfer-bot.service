@@ -1,0 +1,23 @@
+[Unit]
+Description=Telegram Transfer Bot (Low Memory High-Performance)
+After=network.target telegram-bot-api.service
+Wants=telegram-bot-api.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/tg-transfer-bot
+EnvironmentFile=/opt/tg-transfer-bot/.env
+ExecStart=/opt/tg-transfer-bot/tg-transfer-bot
+
+# 限制常驻内存与资源保护 (针对 1GB RAM 机器)
+MemoryMax=30M
+MemoryHigh=25M
+Restart=always
+RestartSec=5s
+
+# 降低调度优先级，避免争抢系统关键进程 CPU
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

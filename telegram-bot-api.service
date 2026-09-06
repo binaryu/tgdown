@@ -1,0 +1,13 @@
+[Unit]
+Description=Telegram Local Bot API Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/telegram-bot-api --local --http-port=8081 --dir=/var/lib/telegram-bot-api --temp-dir=/var/tmp/tg_downloads --api-id=YOUR_API_ID --api-hash=YOUR_API_HASH
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

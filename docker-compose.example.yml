@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: telegram-bot-api
+    restart: always
+    environment:
+      TELEGRAM_API_ID: "YOUR_TELEGRAM_API_ID"       # 从 my.telegram.org 申请
+      TELEGRAM_API_HASH: "YOUR_TELEGRAM_API_HASH"   # 从 my.telegram.org 申请
+      TELEGRAM_LOCAL: "true"                        # 必须开启本地直传模式
+      TELEGRAM_STAT: "true"
+    volumes:
+      - ./data:/var/lib/telegram-bot-api
+      - ./temp:/tmp/telegram-bot-api                # 共享下载暂存卷
+    ports:
+      - "127.0.0.1:8081:8081"
