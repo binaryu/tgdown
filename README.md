@@ -1,6 +1,6 @@
-# ⚡ TG Transfer Bot (Low RAM Edition)
+# ⚡ TG Transfer Bot
 
-> 专为 **1 Core CPU / 1GB RAM / 2GB Swap** 的超极简 Linux VPS 打造的高性能 Telegram 离线下载与上传转存机器人。
+> 超极简 Linux VPS 打造的高性能 Telegram 离线下载与上传转存机器人。 纯vibe开发
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
