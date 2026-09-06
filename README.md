@@ -156,9 +156,9 @@ ExecStart=/opt/tgdown/tg-transfer-bot
 Restart=always
 RestartSec=5s
 
-# 保护 1GB 内存机器：限制常驻内存上限 30MB
-MemoryMax=30M
-MemoryHigh=25M
+# 保护 1GB 内存机器：限制常驻与子进程总内存上限 150MB
+MemoryMax=150M
+MemoryHigh=100M
 Nice=10
 
 [Install]
