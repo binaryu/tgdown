@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -148,6 +149,35 @@ func TestAria2ProgressRegex(t *testing.T) {
 		if tc.eta != "" && matches[7] != tc.eta {
 			t.Errorf("用例 %d ETA 解析错误: %s != %s", i, matches[7], tc.eta)
 		}
+	}
+}
+
+func TestRestartState(t *testing.T) {
+	statePath := filepath.Join(os.TempDir(), "test_restart_state.json")
+	data, _ := json.Marshal(map[string]any{
+		"chat_id":    123456,
+		"message_id": 999,
+		"version":    "v0.0.8",
+	})
+	if err := os.WriteFile(statePath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(statePath)
+
+	readData, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct {
+		ChatID    int64  `json:"chat_id"`
+		MessageID int64  `json:"message_id"`
+		Version   string `json:"version"`
+	}
+	if err := json.Unmarshal(readData, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.ChatID != 123456 || state.MessageID != 999 || state.Version != "v0.0.8" {
+		t.Fatalf("反序列化重启状态错误: %+v", state)
 	}
 }
 

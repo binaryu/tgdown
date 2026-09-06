@@ -174,6 +174,15 @@ func CheckAndPerformUpdate(ctx context.Context, bot *TelegramClient, chatID int6
 		return errors.New(errMsg)
 	}
 
+	// 保存重启状态元数据，便于新进程启动后闭环通知
+	statePath := filepath.Join(os.TempDir(), "tg_bot_restart_state.json")
+	stateData, _ := json.Marshal(map[string]any{
+		"chat_id":    chatID,
+		"message_id": msgID,
+		"version":    latestTag,
+	})
+	_ = os.WriteFile(statePath, stateData, 0600)
+
 	// 告知用户正在重启
 	finishMsg := fmt.Sprintf("🚀 **更新成功！**\n版本: `%s` ➔ `%s`\n系统正在无缝重启生效...", AppVersion, latestTag)
 	_, _ = bot.EditMessageText(ctx, chatID, msgID, finishMsg, "Markdown")
@@ -191,4 +200,30 @@ func CheckAndPerformUpdate(ctx context.Context, bot *TelegramClient, chatID int6
 	}
 
 	return nil
+}
+
+// CheckAndNotifyRestart checks if a restart state file exists, updates the status message, and cleans up
+func CheckAndNotifyRestart(ctx context.Context, bot *TelegramClient) {
+	statePath := filepath.Join(os.TempDir(), "tg_bot_restart_state.json")
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		return
+	}
+	_ = os.Remove(statePath)
+
+	var state struct {
+		ChatID    int64  `json:"chat_id"`
+		MessageID int64  `json:"message_id"`
+		Version   string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return
+	}
+
+	successText := fmt.Sprintf("🎉 **服务重启成功！**\n新版本 `%s` 已正式生效，系统运行就绪。", AppVersion)
+	_, err = bot.EditMessageText(ctx, state.ChatID, state.MessageID, successText, "Markdown")
+	if err != nil {
+		// 如果编辑失败 (如原消息被删除或超过时限)，直接补发一条确认消息
+		_, _ = bot.SendMessage(ctx, state.ChatID, successText, "Markdown")
+	}
 }

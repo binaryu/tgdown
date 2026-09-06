@@ -65,6 +65,9 @@ func main() {
 		cfg.APIBase, cfg.DownloadDir, cfg.TaskTimeout, cfg.ThrottleInterval)
 	log.Printf("🔒 白名单 Admin ID 总计: %d 个", len(cfg.AdminIDs))
 
+	// 检查是否有由于 /update 触发的重启状态文件，若有则闭环编辑/回执成功通知
+	go CheckAndNotifyRestart(ctx, bot)
+
 	// Polling 循环
 	var offset int64 = 0
 
