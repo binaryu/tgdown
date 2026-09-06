@@ -148,6 +148,31 @@ func TestAria2ProgressRegex(t *testing.T) {
 	}
 }
 
+func TestYtArgsAndPlatformCheck(t *testing.T) {
+	// 1. URL 平台检查
+	if !IsVideoPlatformURL("https://www.youtube.com/watch?v=dQw4w9WgXcQ") {
+		t.Fatal("未能识别 youtube.com")
+	}
+	if !IsVideoPlatformURL("https://b23.tv/av123456") {
+		t.Fatal("未能识别 b23.tv")
+	}
+	if !IsVideoPlatformURL("https://x.com/user/status/123") {
+		t.Fatal("未能识别 x.com")
+	}
+	if IsVideoPlatformURL("https://example.com/file.zip") {
+		t.Fatal("普通直链被误判为视频平台")
+	}
+
+	// 2. 参数解析
+	yp1, err := ParseYtArgs("https://youtube.com/watch?v=123 720 --doc")
+	if err != nil {
+		t.Fatalf("ParseYtArgs 失败: %v", err)
+	}
+	if yp1.URL != "https://youtube.com/watch?v=123" || yp1.Resolution != "720" || !yp1.ForceDoc {
+		t.Fatalf("yp1 字段错误: %+v", yp1)
+	}
+}
+
 func TestRenderProgressBar(t *testing.T) {
 	if renderProgressBar(0, 10) != "░░░░░░░░░░" {
 		t.Errorf("0%% 进度条错误: %s", renderProgressBar(0, 10))

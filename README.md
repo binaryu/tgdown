@@ -38,7 +38,8 @@
 
 | 指令 | 说明 | 示例 |
 | :--- | :--- | :--- |
-| `/down <URL> [重命名] [--doc/--video] [其他参数]` | 唤起 aria2c 下载并秒级转存（视频默认作为可流式播放媒体，支持 `--doc` 发送为无损原文件） | `/down https://example.com/movie.mp4 --doc` 或 `/down https://.../video.mp4 --video` |
+| `/down <URL> [重命名] [--doc/--video] [其他参数]` | 唤起 aria2c 下载并秒级转存（若为 YouTube/B站等链接自动智能调度 yt-dlp） | `/down https://example.com/movie.mp4 --doc` |
+| `/ytdl <URL> [720/1080] [--doc]` | 显式唤起宿主机 yt-dlp 提取流媒体视频（封顶 1080P，禁止 CPU 重编码） | `/ytdl https://www.youtube.com/watch?v=... 720` |
 | `/curl <参数...>` | 原样透传执行系统 curl 诊断，超出 3500 字符自动截断 | `/curl -I https://cloudflare.com` |
 | `/wget <参数...>` | 原样透传执行系统 wget 诊断，Markdown 等宽回显 | `/wget -q -O - https://httpbin.org/ip` |
 | `/status` 或 `/ping` | 实时查看宿主机物理内存、Swap (`/proc/meminfo`) 与任务排队状态 | `/status` |
@@ -194,10 +195,8 @@ make build-all
 * [x] **单任务排队互斥锁**：针对 1GB RAM 小鸡严格串行调度，杜绝并发打爆系统磁盘与网络。
 * [x] **安全沙箱化诊断**：系统级 `/curl` 与 `/wget` 过滤，阻断本地写盘、文件窃取与云元数据 SSRF。
 * [x] **流式媒体支持**：视频智能识别流式播放与 `--doc` 原文件无损转存自由切换。
+* [x] **纯 CLI 调用 `yt-dlp` 流媒体提取**：按需调用宿主机 `yt-dlp`，零内置臃肿依赖；严格限制 1080P、无重编码混流与 1950M 熔断，保护 1GB 内存小鸡。
 * [x] **一键在线自更新**：通过 `/update` 自动拉取 GitHub Releases 预编译二进制并热重载。
-* [ ] **待办探索：可选的 `yt-dlp` 流媒体支持（保持极简克制）**：
-  - **核心原则**：**绝不破坏轻量初衷**。即便未来支持，也必须是“完全可选的按需探测”（若宿主机未安装 `yt-dlp`/`ffmpeg`，核心程序零额外负担，保持绝对纯粹）。
-  - **防御底线**：若启用，必须强制锁定 `--remux-video mp4` 纯流混流（严禁 CPU 满载转码）与 `--max-filesize 1950M` 熔断拦截，誓死捍卫 1GB 内存小鸡的系统稳定。
 
 ---
 

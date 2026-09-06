@@ -30,6 +30,7 @@ func main() {
 	bot := NewTelegramClient(cfg.BotToken, cfg.APIBase)
 	taskMgr := NewTaskManager()
 	downloader := NewDownloader(cfg, bot)
+	ytdl := NewYtDownloader(cfg, bot)
 	executor := NewExecutor(bot)
 
 	// 捕获系统退出信号
@@ -78,7 +79,7 @@ func main() {
 				continue
 			}
 
-			handleMessage(ctx, cfg, bot, taskMgr, downloader, executor, msg)
+			handleMessage(ctx, cfg, bot, taskMgr, downloader, ytdl, executor, msg)
 		}
 	}
 }
@@ -89,6 +90,7 @@ func handleMessage(
 	bot *TelegramClient,
 	taskMgr *TaskManager,
 	downloader *Downloader,
+	ytdl *YtDownloader,
 	executor *Executor,
 	msg *Message,
 ) {
@@ -116,7 +118,9 @@ func handleMessage(
 
 📌 **支持指令**:
 • /down <URL> [重命名] [--doc/--video] [-H "Header"] [--cookie "Cookie"]
-  多连接断点续传下载并转存（默认智能识别视频媒体流播放；支持 --doc 强制发送为原文件）。
+  多连接断点续传下载并转存（智能识别视频流与常规文件，流媒体自动调度）。
+• /ytdl <URL> [720/1080] [--doc]
+  唤起系统 yt-dlp 提取 YouTube/B站/Twitter 等流媒体（最高1080P，禁CPU重编码）。
 • /curl <参数...>
   系统原生 curl 诊断执行，自动截断 3500 字符以内。
 • /wget <参数...>
@@ -184,6 +188,31 @@ func handleMessage(
 			return
 		}
 
+		// 智能识别：如果是常见流媒体网站，自动路由至 yt-dlp
+		if IsVideoPlatformURL(params.URL) {
+			taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
+			taskName := fmt.Sprintf("/ytdl %s", params.URL)
+
+			if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+				cancel()
+				_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前已有正在运行的任务，请等待其完成或通过 /cancel 取消当前任务。", "Markdown")
+				return
+			}
+
+			go func() {
+				defer taskMgr.Release()
+				defer cancel()
+
+				ytParams := &YtTaskParams{
+					URL:        params.URL,
+					ForceDoc:   params.SendAs == "doc",
+					Resolution: "1080",
+				}
+				_ = ytdl.DownloadAndTransfer(taskCtx, chatID, ytParams)
+			}()
+			return
+		}
+
 		taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
 		taskName := fmt.Sprintf("/down %s", params.URL)
 
@@ -204,6 +233,40 @@ func handleMessage(
 				log.Printf("❌ 下载/转存任务失败: %v", err)
 			} else {
 				log.Printf("✅ 下载/转存任务顺利完成")
+			}
+		}()
+
+	case "/ytdl":
+		if args == "" {
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ 请提供视频链接，格式: `/ytdl <URL> [720/1080] [--doc]`", "Markdown")
+			return
+		}
+
+		ytParams, err := ParseYtArgs(args)
+		if err != nil {
+			_, _ = bot.SendMessage(parentCtx, chatID, fmt.Sprintf("⚠️ 参数解析错误: %v", err), "")
+			return
+		}
+
+		taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
+		taskName := fmt.Sprintf("/ytdl %s", ytParams.URL)
+
+		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+			cancel()
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前已有正在运行的任务，请等待其完成或通过 /cancel 取消当前任务。", "Markdown")
+			return
+		}
+
+		go func() {
+			defer taskMgr.Release()
+			defer cancel()
+
+			log.Printf("▶️ 开始处理流媒体提取: URL=%s, 限制分辨率=%sp, ForceDoc=%v", ytParams.URL, ytParams.Resolution, ytParams.ForceDoc)
+			err := ytdl.DownloadAndTransfer(taskCtx, chatID, ytParams)
+			if err != nil {
+				log.Printf("❌ yt-dlp 任务失败: %v", err)
+			} else {
+				log.Printf("✅ yt-dlp 任务顺利完成")
 			}
 		}()
 
