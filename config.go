@@ -13,14 +13,20 @@ import (
 
 // Config holds runtime configuration loaded from environment variables
 type Config struct {
-	BotToken         string
-	AdminIDs         map[int64]struct{}
-	APIBase          string
+	BotToken             string
+	AdminIDs             map[int64]struct{}
+	APIBase              string
 	DownloadDir          string
 	ContainerDownloadDir string
 	TaskTimeout          time.Duration
-	ThrottleInterval time.Duration
-	Aria2Split       int
+	ThrottleInterval     time.Duration
+	Aria2Split           int
+	Aria2DiskCache       string
+	Aria2FileAlloc       string
+	MaxConcurrentTasks   int
+	MaxFileSize          string
+	YtdlMaxHeight        string
+	BotMemoryLimit       string
 }
 
 // loadDotEnv reads .env file from current directory if present
@@ -132,15 +138,51 @@ func LoadConfig() (*Config, error) {
 		}
 	}
 
+	aria2DiskCache := strings.TrimSpace(os.Getenv("ARIA2_DISK_CACHE"))
+	if aria2DiskCache == "" {
+		aria2DiskCache = "16M" // 默认 16M (标准 aria2 缓存)
+	}
+
+	aria2FileAlloc := strings.TrimSpace(os.Getenv("ARIA2_FILE_ALLOC"))
+	if aria2FileAlloc == "" {
+		aria2FileAlloc = "falloc" // 默认 falloc (Linux 高效分配，若低配机器可指定 none)
+	}
+
+	maxConcurrentTasks := 1
+	if concStr := strings.TrimSpace(os.Getenv("MAX_CONCURRENT_TASKS")); concStr != "" {
+		c, err := strconv.Atoi(concStr)
+		if err == nil && c > 0 && c <= 32 {
+			maxConcurrentTasks = c
+		}
+	}
+
+	maxFileSize := strings.TrimSpace(os.Getenv("MAX_FILE_SIZE"))
+	if maxFileSize == "" {
+		maxFileSize = "2000M" // 默认匹配 Telegram Local API 2000MB 上限
+	}
+
+	ytdlMaxHeight := strings.TrimSpace(os.Getenv("YTDL_MAX_HEIGHT"))
+	if ytdlMaxHeight == "" {
+		ytdlMaxHeight = "0" // 默认 0 (不限制画质，拉取最佳可用画质；低配机器可配 1080/720)
+	}
+
+	botMemoryLimit := strings.TrimSpace(os.Getenv("BOT_MEMORY_LIMIT"))
+
 	return &Config{
-		BotToken:         token,
-		AdminIDs:         adminIDs,
-		APIBase:          apiBase,
+		BotToken:             token,
+		AdminIDs:             adminIDs,
+		APIBase:              apiBase,
 		DownloadDir:          absDownloadDir,
 		ContainerDownloadDir: containerDownloadDir,
 		TaskTimeout:          taskTimeout,
-		ThrottleInterval: throttleInterval,
-		Aria2Split:       aria2Split,
+		ThrottleInterval:     throttleInterval,
+		Aria2Split:           aria2Split,
+		Aria2DiskCache:       aria2DiskCache,
+		Aria2FileAlloc:       aria2FileAlloc,
+		MaxConcurrentTasks:   maxConcurrentTasks,
+		MaxFileSize:          maxFileSize,
+		YtdlMaxHeight:        ytdlMaxHeight,
+		BotMemoryLimit:       botMemoryLimit,
 	}, nil
 }
 

@@ -48,14 +48,15 @@ func TestConfigLoad(t *testing.T) {
 }
 
 func TestTaskManager(t *testing.T) {
-	tm := NewTaskManager()
+	tm := NewTaskManager(1)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 首次获取锁应成功
-	if !tm.TryAcquire("任务1", 12345, cancel) {
-		t.Fatal("获取互斥锁失败")
+	// 首次获取槽位应成功
+	ok1, id1 := tm.TryAcquire("任务1", 12345, cancel)
+	if !ok1 || id1 <= 0 {
+		t.Fatal("获取互斥槽位失败")
 	}
 
 	// 状态应为执行中
@@ -64,22 +65,23 @@ func TestTaskManager(t *testing.T) {
 		t.Fatalf("状态异常: busy=%v, desc=%s", busy, desc)
 	}
 
-	// 第二次获取锁应被互斥拒绝
-	if tm.TryAcquire("任务2", 67890, func() {}) {
-		t.Fatal("互斥锁未能阻止并发任务")
+	// 第二次获取锁在容量为 1 时应被拒绝
+	ok2, _ := tm.TryAcquire("任务2", 67890, func() {})
+	if ok2 {
+		t.Fatal("互斥锁未能阻止超额并发任务")
 	}
 
 	// 取消任务
-	cancelled, taskName := tm.CancelActiveTask()
-	if !cancelled || taskName != "任务1" {
-		t.Fatalf("取消任务失败: cancelled=%v, taskName=%s", cancelled, taskName)
+	count, names := tm.CancelAllActiveTasks()
+	if count != 1 || names[0] != "任务1" {
+		t.Fatalf("取消任务失败: count=%d, names=%v", count, names)
 	}
 	if ctx.Err() != context.Canceled {
 		t.Fatal("Context 未被正确取消")
 	}
 
 	// 释放锁
-	tm.Release()
+	tm.Release(id1)
 
 	// 状态应重置为空闲
 	busy, desc = tm.GetStatus()
@@ -88,10 +90,11 @@ func TestTaskManager(t *testing.T) {
 	}
 
 	// 释放后重新获取应成功
-	if !tm.TryAcquire("任务3", 11111, func() {}) {
+	ok3, id3 := tm.TryAcquire("任务3", 11111, func() {})
+	if !ok3 {
 		t.Fatal("释放后重新获取锁失败")
 	}
-	tm.Release()
+	tm.Release(id3)
 }
 
 func TestAria2ProgressRegex(t *testing.T) {

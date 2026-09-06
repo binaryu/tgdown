@@ -185,9 +185,9 @@ func (d *Downloader) DownloadAndTransfer(ctx context.Context, chatID int64, para
 		fmt.Sprintf("-x%d", d.cfg.Aria2Split),
 		fmt.Sprintf("-s%d", d.cfg.Aria2Split),
 		"-k1M",
-		"-c",                     // 断点续传
-		"--disk-cache=4M",        // 限制磁盘缓存为 4MB，防止内存暴涨
-		"--file-allocation=none", // 禁用预分配，节省内存与 IO
+		"-c", // 断点续传
+		"--disk-cache=" + d.cfg.Aria2DiskCache,
+		"--file-allocation=" + d.cfg.Aria2FileAlloc,
 		"--summary-interval=1",
 		"--console-log-level=warn",
 		"--auto-file-renaming=false",

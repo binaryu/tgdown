@@ -45,9 +45,7 @@ func ParseYtArgs(rawInput string) (*YtTaskParams, error) {
 		return nil, errors.New("缺少视频链接")
 	}
 
-	params := &YtTaskParams{
-		Resolution: "1080",
-	}
+	params := &YtTaskParams{}
 
 	for _, token := range tokens {
 		lower := strings.ToLower(token)
@@ -61,6 +59,14 @@ func ParseYtArgs(rawInput string) (*YtTaskParams, error) {
 		}
 		if lower == "1080" || lower == "1080p" {
 			params.Resolution = "1080"
+			continue
+		}
+		if lower == "1440" || lower == "1440p" || lower == "2k" {
+			params.Resolution = "1440"
+			continue
+		}
+		if lower == "2160" || lower == "2160p" || lower == "4k" {
+			params.Resolution = "2160"
 			continue
 		}
 		if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
@@ -104,18 +110,23 @@ func (y *YtDownloader) DownloadAndTransfer(ctx context.Context, chatID int64, pa
 	}
 	statusMsgID := initMsg.MessageID
 
-	// 3. 构造 yt-dlp 纯命令行参数 (严密限制，杜绝打爆 1GB 内存机器)
-	formatStr := "bv*[height<=1080]+ba/b[height<=1080]/best"
-	if params.Resolution == "720" {
-		formatStr = "bv*[height<=720]+ba/b[height<=720]/best"
+	// 3. 构造 yt-dlp 命令行参数 (支持动态画质与文件大小配置)
+	formatStr := "bv*+ba/b/best" // 默认不限制画质，拉取最佳画质
+	if params.Resolution != "" && params.Resolution != "0" {
+		formatStr = fmt.Sprintf("bv*[height<=%s]+ba/b[height<=%s]/best", params.Resolution, params.Resolution)
+	} else if y.cfg.YtdlMaxHeight != "" && y.cfg.YtdlMaxHeight != "0" {
+		formatStr = fmt.Sprintf("bv*[height<=%s]+ba/b[height<=%s]/best", y.cfg.YtdlMaxHeight, y.cfg.YtdlMaxHeight)
 	}
 
 	args := []string{
-		"--newline",               // 强制换行输出，便于标准流实时解析
-		"--no-playlist",           // 禁止误下整个播放列表
-		"--max-filesize", "1950M", // 严禁超出 Telegram 2000MB 限制
+		"--newline",     // 强制换行输出，便于标准流实时解析
+		"--no-playlist", // 禁止误下整个播放列表
 		"-f", formatStr,
 		"-o", filepath.Join(taskDir, "%(title).80B [%(id)s].%(ext)s"),
+	}
+
+	if y.cfg.MaxFileSize != "" && y.cfg.MaxFileSize != "0" {
+		args = append(args, "--max-filesize", y.cfg.MaxFileSize)
 	}
 
 	// 若检测到 ffmpeg，开启纯封装混流 (严禁重编码，保护 1 核 CPU)

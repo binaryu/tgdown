@@ -7,19 +7,36 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 )
 
-func main() {
-	// ==========================================
-	// 核心架构 3：极低内存运行调优
-	// 针对 1GB RAM 极低资源机器，设置 16MB 软限制与积极 GC
-	// ==========================================
-	debug.SetMemoryLimit(16 * 1024 * 1024) // 16 MiB GOMEMLIMIT
-	debug.SetGCPercent(50)                 // 提早触发 GC 回收
+func parseMemoryBytes(memStr string) int64 {
+	memStr = strings.TrimSpace(strings.ToUpper(memStr))
+	if memStr == "" || memStr == "0" {
+		return 0
+	}
+	multiplier := int64(1)
+	if strings.HasSuffix(memStr, "MIB") || strings.HasSuffix(memStr, "MB") {
+		multiplier = 1024 * 1024
+		memStr = strings.TrimSuffix(strings.TrimSuffix(memStr, "MIB"), "MB")
+	} else if strings.HasSuffix(memStr, "GIB") || strings.HasSuffix(memStr, "GB") {
+		multiplier = 1024 * 1024 * 1024
+		memStr = strings.TrimSuffix(strings.TrimSuffix(memStr, "GIB"), "GB")
+	} else if strings.HasSuffix(memStr, "KIB") || strings.HasSuffix(memStr, "KB") {
+		multiplier = 1024
+		memStr = strings.TrimSuffix(strings.TrimSuffix(memStr, "KIB"), "KB")
+	}
+	val, err := strconv.ParseInt(strings.TrimSpace(memStr), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return val * multiplier
+}
 
+func main() {
 	log.Println("🚀 启动 Telegram 离线下载与转存 Bot...")
 
 	cfg, err := LoadConfig()
@@ -27,8 +44,15 @@ func main() {
 		log.Fatalf("❌ 配置加载失败: %v", err)
 	}
 
+	// 内存软限制：若环境变量显式配置了 BOT_MEMORY_LIMIT (如 16MiB)，则开启限制与积极 GC；否则遵循 Go 运行时默认
+	if memLimit := parseMemoryBytes(cfg.BotMemoryLimit); memLimit > 0 {
+		debug.SetMemoryLimit(memLimit)
+		debug.SetGCPercent(50)
+		log.Printf("⚙️ 已应用内存软限制: %s", cfg.BotMemoryLimit)
+	}
+
 	bot := NewTelegramClient(cfg.BotToken, cfg.APIBase)
-	taskMgr := NewTaskManager()
+	taskMgr := NewTaskManager(cfg.MaxConcurrentTasks)
 	downloader := NewDownloader(cfg, bot)
 	ytdl := NewYtDownloader(cfg, bot)
 	executor := NewExecutor(bot)
@@ -138,9 +162,9 @@ func handleMessage(
 		_, _ = bot.SendMessage(parentCtx, chatID, statusText, "Markdown")
 
 	case "/cancel":
-		cancelled, taskName := taskMgr.CancelActiveTask()
-		if cancelled {
-			_, _ = bot.SendMessage(parentCtx, chatID, fmt.Sprintf("🛑 已成功发送取消信号，正在中止任务: `%s`", taskName), "Markdown")
+		count, names := taskMgr.CancelAllActiveTasks()
+		if count > 0 {
+			_, _ = bot.SendMessage(parentCtx, chatID, fmt.Sprintf("🛑 已成功中止 %d 个正在执行的任务:\n- %s", count, strings.Join(names, "\n- ")), "")
 		} else {
 			_, _ = bot.SendMessage(parentCtx, chatID, "ℹ️ 当前没有正在运行的任务可取消。", "")
 		}
@@ -150,14 +174,15 @@ func handleMessage(
 		taskCtx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 		taskName := "在线更新 Bot"
 
-		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+		acquired, taskID := taskMgr.TryAcquire(taskName, chatID, cancel)
+		if !acquired {
 			cancel()
 			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前有任务正在运行，请等待其完成后再更新。", "Markdown")
 			return
 		}
 
 		go func() {
-			defer taskMgr.Release()
+			defer taskMgr.Release(taskID)
 			defer cancel()
 
 			err := CheckAndPerformUpdate(taskCtx, bot, chatID, force)
@@ -193,20 +218,21 @@ func handleMessage(
 			taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
 			taskName := fmt.Sprintf("/ytdl %s", params.URL)
 
-			if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+			acquired, taskID := taskMgr.TryAcquire(taskName, chatID, cancel)
+			if !acquired {
 				cancel()
 				_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前已有正在运行的任务，请等待其完成或通过 /cancel 取消当前任务。", "Markdown")
 				return
 			}
 
 			go func() {
-				defer taskMgr.Release()
+				defer taskMgr.Release(taskID)
 				defer cancel()
 
 				ytParams := &YtTaskParams{
 					URL:        params.URL,
 					ForceDoc:   params.SendAs == "doc",
-					Resolution: "1080",
+					Resolution: cfg.YtdlMaxHeight,
 				}
 				_ = ytdl.DownloadAndTransfer(taskCtx, chatID, ytParams)
 			}()
@@ -216,15 +242,16 @@ func handleMessage(
 		taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
 		taskName := fmt.Sprintf("/down %s", params.URL)
 
-		// 核心约束 1：单任务排队/互斥锁
-		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+		// 核心约束 1：任务槽位并发控制
+		acquired, taskID := taskMgr.TryAcquire(taskName, chatID, cancel)
+		if !acquired {
 			cancel()
-			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前已有正在运行的任务，请等待其完成或通过 /cancel 取消当前任务。", "Markdown")
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前任务队列已满，请等待现有任务完成或通过 /cancel 取消当前任务。", "Markdown")
 			return
 		}
 
 		go func() {
-			defer taskMgr.Release()
+			defer taskMgr.Release(taskID)
 			defer cancel()
 
 			log.Printf("▶️ 开始处理下载任务: URL=%s, 自定义名=%s, 自定义Header=%d个", params.URL, params.CustomName, len(params.Headers))
@@ -251,14 +278,15 @@ func handleMessage(
 		taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
 		taskName := fmt.Sprintf("/ytdl %s", ytParams.URL)
 
-		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+		acquired, taskID := taskMgr.TryAcquire(taskName, chatID, cancel)
+		if !acquired {
 			cancel()
-			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前已有正在运行的任务，请等待其完成或通过 /cancel 取消当前任务。", "Markdown")
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前任务队列已满，请等待现有任务完成或通过 /cancel 取消当前任务。", "Markdown")
 			return
 		}
 
 		go func() {
-			defer taskMgr.Release()
+			defer taskMgr.Release(taskID)
 			defer cancel()
 
 			log.Printf("▶️ 开始处理流媒体提取: URL=%s, 限制分辨率=%sp, ForceDoc=%v", ytParams.URL, ytParams.Resolution, ytParams.ForceDoc)
@@ -279,14 +307,15 @@ func handleMessage(
 		taskCtx, cancel := context.WithCancel(parentCtx)
 		taskName := fmt.Sprintf("/curl %s", args)
 
-		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+		acquired, taskID := taskMgr.TryAcquire(taskName, chatID, cancel)
+		if !acquired {
 			cancel()
-			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前已有任务在执行，请稍候重试。", "Markdown")
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前任务队列已满，请稍候重试。", "Markdown")
 			return
 		}
 
 		go func() {
-			defer taskMgr.Release()
+			defer taskMgr.Release(taskID)
 			defer cancel()
 
 			executor.RunCommand(taskCtx, chatID, "curl", args)
@@ -301,14 +330,15 @@ func handleMessage(
 		taskCtx, cancel := context.WithCancel(parentCtx)
 		taskName := fmt.Sprintf("/wget %s", args)
 
-		if !taskMgr.TryAcquire(taskName, chatID, cancel) {
+		acquired, taskID := taskMgr.TryAcquire(taskName, chatID, cancel)
+		if !acquired {
 			cancel()
-			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前已有任务在执行，请稍候重试。", "Markdown")
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前任务队列已满，请稍候重试。", "Markdown")
 			return
 		}
 
 		go func() {
-			defer taskMgr.Release()
+			defer taskMgr.Release(taskID)
 			defer cancel()
 
 			executor.RunCommand(taskCtx, chatID, "wget", args)

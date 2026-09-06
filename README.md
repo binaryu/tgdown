@@ -108,29 +108,23 @@ nano .env
 
 配置说明：
 ```ini
-# Bot Token
+# --- 必填项 ---
 BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
-
-# 允许使用机器人的管理员 Telegram ID (支持逗号分隔多个)
 ADMIN_ID=12345678
-
-# Local Bot API 地址
 API_BASE=http://127.0.0.1:8081
-
-# 宿主机上真实的 temp 文件夹绝对路径
 DOWNLOAD_DIR=/opt/tg-bot-api/temp
-
-# 容器内部对应挂载路径 (对应 docker-compose 冒号右侧)
 CONTAINER_DOWNLOAD_DIR=/tmp/telegram-bot-api
 
-# 单个下载任务最大超时时间 (例如: 30m, 1h)
-TASK_TIMEOUT=60m
-
-# 进度刷新节流 (建议 2.5s ~ 5s，防 Telegram 429 限制)
-THROTTLE_INTERVAL=3s
-
-# aria2c 分片连接数
-ARIA2_SPLIT=16
+# --- 高级可调参数 (根据机器性能自由调节) ---
+MAX_CONCURRENT_TASKS=1       # 并发任务上限 (低配小鸡建议 1，高配大机可设 3 或 5)
+TASK_TIMEOUT=60m             # 单任务最大执行时间
+THROTTLE_INTERVAL=3s         # Telegram 进度推送刷新间隔 (建议 2.5s ~ 5s)
+ARIA2_SPLIT=16               # aria2c 单任务分片连接数 (默认 16，大带宽可设 32)
+ARIA2_DISK_CACHE=16M         # aria2c 磁盘写入缓存 (默认 16M，极低内存可设 4M)
+ARIA2_FILE_ALLOC=falloc      # aria2c 预分配方式 (默认 falloc，低配可设 none)
+MAX_FILE_SIZE=2000M          # 单文件体积上限 (默认 2000M 匹配 Local API 限制，0 为不限)
+YTDL_MAX_HEIGHT=0            # yt-dlp 最高分辨率 (默认 0 不限画质；低配小鸡可设 1080 或 720)
+BOT_MEMORY_LIMIT=            # Bot 内存软限制 (默认留空不限；1GB 机器可配置 16MiB)
 ```
 
 ### 4. 运行
