@@ -70,7 +70,7 @@ func (e *Executor) RunCommand(ctx context.Context, chatID int64, binName string,
 		truncated = true
 	}
 
-	displayOutput := string(outputRunes)
+	displayOutput := cleanDiagnosticOutput(string(outputRunes))
 	if strings.TrimSpace(displayOutput) == "" {
 		displayOutput = "(命令已执行，但无标准输出与错误输出)"
 	}
@@ -103,6 +103,7 @@ func (e *Executor) RunCommand(ctx context.Context, chatID int64, binName string,
 func validateSafeArgs(binName string, args []string) ([]string, error) {
 	var safeArgs []string
 	hasWgetStdout := false
+	hasCurlSilent := false
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -124,6 +125,11 @@ func validateSafeArgs(binName string, args []string) ([]string, error) {
 		}
 
 		if binName == "curl" {
+			// 检测是否已经带了静默参数
+			if arg == "-s" || arg == "-sS" || strings.HasPrefix(arg, "-s") || lower == "--silent" {
+				hasCurlSilent = true
+			}
+
 			// 禁止落盘输出相关参数
 			if arg == "-o" || arg == "-O" || lower == "--output" || lower == "--remote-name" ||
 				strings.HasPrefix(lower, "--output=") || lower == "--dump-header" ||
@@ -179,7 +185,38 @@ func validateSafeArgs(binName string, args []string) ([]string, error) {
 		safeArgs = append(safeArgs, "-O", "-")
 	}
 
+	// 如果 curl 未指定静默参数，自动前置注入 -sS: 隐藏冗余进度统计表，但保留错误输出 (--show-error)
+	if binName == "curl" && !hasCurlSilent {
+		safeArgs = append([]string{"-sS"}, safeArgs...)
+	}
+
 	return safeArgs, nil
+}
+
+// cleanDiagnosticOutput strips unwanted curl progress meter tables from output
+func cleanDiagnosticOutput(output string) string {
+	if strings.Contains(output, "% Total") && strings.Contains(output, "Speed") {
+		var lines []string
+		skip := false
+		for _, line := range strings.Split(output, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.Contains(trimmed, "% Total") && strings.Contains(trimmed, "Received") {
+				skip = true
+				continue
+			}
+			if skip {
+				if strings.Contains(trimmed, "Dload") || strings.Contains(trimmed, "Upload") ||
+					strings.Contains(trimmed, "--:--:--") || strings.HasPrefix(trimmed, "0 ") ||
+					strings.HasPrefix(trimmed, "100 ") {
+					continue
+				}
+				skip = false
+			}
+			lines = append(lines, line)
+		}
+		output = strings.Join(lines, "\n")
+	}
+	return strings.TrimSpace(output)
 }
 type boundedWriter struct {
 	buf   *bytes.Buffer

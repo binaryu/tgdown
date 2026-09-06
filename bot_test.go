@@ -226,10 +226,13 @@ func TestParseDownArgs(t *testing.T) {
 }
 
 func TestValidateSafeArgs(t *testing.T) {
-	// 1. curl 正常参数
+	// 1. curl 正常参数 (自动注入 -sS)
 	args, err := validateSafeArgs("curl", []string{"-I", "https://example.com"})
-	if err != nil || len(args) != 2 {
+	if err != nil {
 		t.Fatalf("正常 curl 参数被拦截: %v", err)
+	}
+	if args[0] != "-sS" {
+		t.Fatalf("curl 未自动前置 -sS: %+v", args)
 	}
 
 	// 2. 拦截 curl 本地写文件
@@ -276,6 +279,16 @@ func TestValidateSafeArgs(t *testing.T) {
 	}
 	if !foundStdout {
 		t.Fatal("wget 未能自动补齐 -O - 强制标准输出")
+	}
+
+	// 8. cleanDiagnosticOutput 测试剔除进度统计表
+	rawProgress := `  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100    37  100    37    0     0    752      0 --:--:-- --:--:-- --:--:--   755
+2a03:4000:31:d5f:a8df:ebff:fe39:ce8a`
+	cleaned := cleanDiagnosticOutput(rawProgress)
+	if strings.Contains(cleaned, "% Total") || !strings.Contains(cleaned, "2a03:4000:31:d5f:a8df:ebff:fe39:ce8a") {
+		t.Fatalf("cleanDiagnosticOutput 清理失败: %q", cleaned)
 	}
 }
 
