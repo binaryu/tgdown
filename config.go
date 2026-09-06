@@ -26,6 +26,8 @@ type Config struct {
 	MaxConcurrentTasks   int
 	MaxFileSize          string
 	YtdlMaxHeight        string
+	YtdlProxy            string
+	YtdlCookiesFile      string
 	BotMemoryLimit       string
 }
 
@@ -166,6 +168,15 @@ func LoadConfig() (*Config, error) {
 		ytdlMaxHeight = "0" // 默认 0 (不限制画质，拉取最佳可用画质；低配机器可配 1080/720)
 	}
 
+	ytdlProxy := strings.TrimSpace(os.Getenv("YTDL_PROXY"))
+	ytdlCookiesFile := strings.TrimSpace(os.Getenv("YTDL_COOKIES_FILE"))
+	if ytdlCookiesFile == "" {
+		// 检查本地是否存在 cookies.txt
+		if _, err := os.Stat("cookies.txt"); err == nil {
+			ytdlCookiesFile = "cookies.txt"
+		}
+	}
+
 	botMemoryLimit := strings.TrimSpace(os.Getenv("BOT_MEMORY_LIMIT"))
 
 	return &Config{
@@ -182,6 +193,8 @@ func LoadConfig() (*Config, error) {
 		MaxConcurrentTasks:   maxConcurrentTasks,
 		MaxFileSize:          maxFileSize,
 		YtdlMaxHeight:        ytdlMaxHeight,
+		YtdlProxy:            ytdlProxy,
+		YtdlCookiesFile:      ytdlCookiesFile,
 		BotMemoryLimit:       botMemoryLimit,
 	}, nil
 }

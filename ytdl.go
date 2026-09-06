@@ -119,10 +119,22 @@ func (y *YtDownloader) DownloadAndTransfer(ctx context.Context, chatID int64, pa
 	}
 
 	args := []string{
-		"--newline",     // 强制换行输出，便于标准流实时解析
-		"--no-playlist", // 禁止误下整个播放列表
+		"--newline",               // 强制换行输出，便于标准流实时解析
+		"--no-playlist",           // 禁止误下整个播放列表
+		"--geo-bypass",            // 尝试绕过地区限制
+		"--no-check-certificates", // 避免证书校验报错
 		"-f", formatStr,
 		"-o", filepath.Join(taskDir, "%(title).80B [%(id)s].%(ext)s"),
+	}
+
+	if y.cfg.YtdlProxy != "" {
+		args = append(args, "--proxy", y.cfg.YtdlProxy)
+	}
+
+	if y.cfg.YtdlCookiesFile != "" {
+		if _, err := os.Stat(y.cfg.YtdlCookiesFile); err == nil {
+			args = append(args, "--cookies", y.cfg.YtdlCookiesFile)
+		}
 	}
 
 	if y.cfg.MaxFileSize != "" && y.cfg.MaxFileSize != "0" {
@@ -149,6 +161,8 @@ func (y *YtDownloader) DownloadAndTransfer(ctx context.Context, chatID int64, pa
 
 	lastUpdate := time.Now()
 	var lastReportedText string
+	var errorLines []string
+	var lastOutputLines []string
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
@@ -156,6 +170,15 @@ func (y *YtDownloader) DownloadAndTransfer(ctx context.Context, chatID int64, pa
 		if line == "" {
 			continue
 		}
+
+		// 收集详细报错或异常输出
+		if strings.HasPrefix(line, "ERROR:") || strings.Contains(line, "Error") {
+			errorLines = append(errorLines, line)
+		}
+		if len(lastOutputLines) >= 10 {
+			lastOutputLines = lastOutputLines[1:]
+		}
+		lastOutputLines = append(lastOutputLines, line)
 
 		// 混流或后处理状态提示
 		if strings.HasPrefix(line, "[Merger]") || strings.HasPrefix(line, "[VideoRemuxer]") {
@@ -209,8 +232,18 @@ func (y *YtDownloader) DownloadAndTransfer(ctx context.Context, chatID int64, pa
 			_, _ = y.bot.EditMessageText(context.Background(), chatID, statusMsgID, "⏰ 提取任务已超时。", "")
 			return errors.New("任务超时")
 		}
-		errMsg := fmt.Sprintf("❌ yt-dlp 提取异常退出: %v", err)
-		_, _ = y.bot.EditMessageText(context.Background(), chatID, statusMsgID, errMsg, "")
+
+		var detail string
+		if len(errorLines) > 0 {
+			detail = strings.Join(errorLines, "\n")
+		} else if len(lastOutputLines) > 0 {
+			detail = strings.Join(lastOutputLines, "\n")
+		} else {
+			detail = err.Error()
+		}
+
+		errMsg := fmt.Sprintf("❌ yt-dlp 提取失败: %v\n```text\n%s\n```", err, detail)
+		_, _ = y.bot.EditMessageText(context.Background(), chatID, statusMsgID, errMsg, "Markdown")
 		return errors.New(errMsg)
 	}
 
