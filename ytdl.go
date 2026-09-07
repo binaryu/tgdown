@@ -289,8 +289,12 @@ func (y *YtDownloader) DownloadAndTransfer(ctx context.Context, chatID int64, pa
 		return errors.New(errMsg)
 	}
 
-	finishText := fmt.Sprintf("✅ 转存成功！\n🎬 %s (%s)\n🧹 本地临时文件已自动清理。", fileName, humanSize)
-	_, _ = y.bot.EditMessageText(ctx, chatID, statusMsgID, finishText, "")
+	if y.cfg.DeleteProgressMsg {
+		_ = y.bot.DeleteMessage(ctx, chatID, statusMsgID)
+	} else {
+		finishText := fmt.Sprintf("✅ 转存成功！\n🎬 %s (%s)\n🧹 本地临时文件已自动清理。", fileName, humanSize)
+		_, _ = y.bot.EditMessageText(ctx, chatID, statusMsgID, finishText, "")
+	}
 
 	return nil
 }

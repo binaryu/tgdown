@@ -127,6 +127,7 @@ MAX_FILE_SIZE=2000M          # 单文件体积上限 (默认 2000M 匹配 Local 
 YTDL_MAX_HEIGHT=0            # yt-dlp 最高分辨率 (默认 0 不限画质；低配小鸡可设 1080 或 720)
 YTDL_PROXY=                  # yt-dlp 专属代理 (如: socks5://127.0.0.1:1080，解决机房 IP 限制)
 YTDL_COOKIES_FILE=cookies.txt# yt-dlp Cookies 文件路径 (防 YouTube 机器人人机验证)
+DELETE_PROGRESS_MSG=true    # 转存完成后自动删除过程进度消息 (默认 true，界面更清爽)
 BOT_MEMORY_LIMIT=            # Bot 内存软限制 (默认留空不限；1GB 机器可配置 16MiB)
 ```
 

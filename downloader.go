@@ -356,9 +356,13 @@ func (d *Downloader) DownloadAndTransfer(ctx context.Context, chatID int64, para
 		return errors.New(errMsg)
 	}
 
-	// 7. 转存完成通知
-	finishText := fmt.Sprintf("✅ 转存成功！\n📦 %s (%s)\n🧹 本地临时文件已自动清理。", fileName, humanSize)
-	_, _ = d.bot.EditMessageText(ctx, chatID, statusMsgID, finishText, "")
+	// 7. 转存完成：若开启了 DeleteProgressMsg (默认 true)，自动删除过程中的进度消息，聊天窗口仅保留干净的文件卡片
+	if d.cfg.DeleteProgressMsg {
+		_ = d.bot.DeleteMessage(ctx, chatID, statusMsgID)
+	} else {
+		finishText := fmt.Sprintf("✅ 转存成功！\n📦 %s (%s)\n🧹 本地临时文件已自动清理。", fileName, humanSize)
+		_, _ = d.bot.EditMessageText(ctx, chatID, statusMsgID, finishText, "")
+	}
 
 	return nil
 }

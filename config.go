@@ -30,6 +30,7 @@ type Config struct {
 	YtdlProxy            string
 	YtdlCookiesFile      string
 	BotMemoryLimit       string
+	DeleteProgressMsg    bool
 }
 
 // loadDotEnv reads .env file from current directory if present
@@ -196,6 +197,13 @@ func LoadConfig() (*Config, error) {
 
 	botMemoryLimit := strings.TrimSpace(os.Getenv("BOT_MEMORY_LIMIT"))
 
+	deleteProgressMsg := true
+	if delStr := strings.TrimSpace(os.Getenv("DELETE_PROGRESS_MSG")); delStr != "" {
+		if strings.ToLower(delStr) == "false" || delStr == "0" {
+			deleteProgressMsg = false
+		}
+	}
+
 	return &Config{
 		BotToken:             token,
 		AdminIDs:             adminIDs,
@@ -214,6 +222,7 @@ func LoadConfig() (*Config, error) {
 		YtdlProxy:            ytdlProxy,
 		YtdlCookiesFile:      ytdlCookiesFile,
 		BotMemoryLimit:       botMemoryLimit,
+		DeleteProgressMsg:    deleteProgressMsg,
 	}, nil
 }
 
