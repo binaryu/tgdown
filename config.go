@@ -15,6 +15,7 @@ import (
 type Config struct {
 	BotToken             string
 	AdminIDs             map[int64]struct{}
+	AllowedGroupIDs      map[int64]struct{}
 	APIBase              string
 	DownloadDir          string
 	ContainerDownloadDir string
@@ -85,6 +86,22 @@ func LoadConfig() (*Config, error) {
 	}
 	if len(adminIDs) == 0 {
 		return nil, errors.New("至少需要配置一个有效的 ADMIN_ID")
+	}
+
+	groupRaw := strings.TrimSpace(os.Getenv("ALLOWED_GROUP_IDS"))
+	allowedGroupIDs := make(map[int64]struct{})
+	if groupRaw != "" {
+		for _, part := range strings.Split(groupRaw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			id, err := strconv.ParseInt(part, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("ALLOWED_GROUP_IDS 中的群组 ID '%s' 解析失败: %w", part, err)
+			}
+			allowedGroupIDs[id] = struct{}{}
+		}
 	}
 
 	apiBase := strings.TrimRight(strings.TrimSpace(os.Getenv("API_BASE")), "/")
@@ -182,6 +199,7 @@ func LoadConfig() (*Config, error) {
 	return &Config{
 		BotToken:             token,
 		AdminIDs:             adminIDs,
+		AllowedGroupIDs:      allowedGroupIDs,
 		APIBase:              apiBase,
 		DownloadDir:          absDownloadDir,
 		ContainerDownloadDir: containerDownloadDir,
@@ -203,4 +221,26 @@ func LoadConfig() (*Config, error) {
 func (c *Config) IsAdmin(userID int64) bool {
 	_, ok := c.AdminIDs[userID]
 	return ok
+}
+
+// IsAllowedGroup checks if a group chat ID is in the allowed whitelist
+func (c *Config) IsAllowedGroup(chatID int64) bool {
+	_, ok := c.AllowedGroupIDs[chatID]
+	return ok
+}
+
+// CanAccess checks if the incoming message is authorized (Admin or Allowed Group)
+func (c *Config) CanAccess(msg *Message) bool {
+	if msg == nil {
+		return false
+	}
+	// 管理员在任何地方均有最高权限
+	if msg.From != nil && c.IsAdmin(msg.From.ID) {
+		return true
+	}
+	// 如果是群聊/超级群聊，校验是否在允许群组白名单中
+	if msg.Chat != nil && (msg.Chat.Type == "group" || msg.Chat.Type == "supergroup") {
+		return c.IsAllowedGroup(msg.Chat.ID)
+	}
+	return false
 }

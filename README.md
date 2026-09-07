@@ -111,6 +111,7 @@ nano .env
 # --- 必填项 ---
 BOT_TOKEN=123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ
 ADMIN_ID=12345678
+ALLOWED_GROUP_IDS=           # 允许使用 Bot 的群组 ID (逗号分隔，如 -1001234567890；留空仅限私聊管理员)
 API_BASE=http://127.0.0.1:8081
 DOWNLOAD_DIR=/opt/tg-bot-api/temp
 CONTAINER_DOWNLOAD_DIR=/tmp/telegram-bot-api

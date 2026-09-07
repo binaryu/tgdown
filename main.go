@@ -118,10 +118,14 @@ func main() {
 			}
 
 			msg := update.Message
-			// 核心约束 2：白名单权限校验
-			if msg.From == nil || !cfg.IsAdmin(msg.From.ID) {
-				log.Printf("🛡️ 拦截未授权访问: UserID=%d, ChatID=%d, Text=%q",
-					msg.From.ID, msg.Chat.ID, msg.Text)
+			// 核心约束 2：白名单权限校验 (支持私聊管理员与群聊白名单)
+			if !cfg.CanAccess(msg) {
+				senderID := int64(0)
+				if msg.From != nil {
+					senderID = msg.From.ID
+				}
+				log.Printf("🛡️ 拦截未授权访问: UserID=%d, ChatID=%d (%s), Text=%q",
+					senderID, msg.Chat.ID, msg.Chat.Type, msg.Text)
 				continue
 			}
 
@@ -192,6 +196,12 @@ func handleMessage(
 		}
 
 	case "/update":
+		// 管理级命令：在群内使用时也必须是管理员本人
+		if msg.From == nil || !cfg.IsAdmin(msg.From.ID) {
+			_, _ = bot.SendMessage(parentCtx, chatID, "⛔ 抱歉，自更新命令仅限管理员执行。", "")
+			return
+		}
+
 		force := strings.Contains(strings.ToLower(args), "force")
 		taskCtx, cancel := context.WithTimeout(parentCtx, 5*time.Minute)
 		taskName := "在线更新 Bot"
@@ -321,6 +331,12 @@ func handleMessage(
 		}()
 
 	case "/curl":
+		// 管理级命令：在群内使用时也必须是管理员本人
+		if msg.From == nil || !cfg.IsAdmin(msg.From.ID) {
+			_, _ = bot.SendMessage(parentCtx, chatID, "⛔ 抱歉，运维诊断命令仅限管理员执行。", "")
+			return
+		}
+
 		if args == "" {
 			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ 请提供 curl 参数，例如: `/curl -I https://example.com`", "Markdown")
 			return
@@ -344,6 +360,12 @@ func handleMessage(
 		}()
 
 	case "/wget":
+		// 管理级命令：在群内使用时也必须是管理员本人
+		if msg.From == nil || !cfg.IsAdmin(msg.From.ID) {
+			_, _ = bot.SendMessage(parentCtx, chatID, "⛔ 抱歉，运维诊断命令仅限管理员执行。", "")
+			return
+		}
+
 		if args == "" {
 			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ 请提供 wget 参数，例如: `/wget -q -O - https://example.com`", "Markdown")
 			return

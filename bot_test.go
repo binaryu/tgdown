@@ -152,6 +152,58 @@ func TestAria2ProgressRegex(t *testing.T) {
 	}
 }
 
+func TestCanAccess(t *testing.T) {
+	cfg := &Config{
+		AdminIDs:        map[int64]struct{}{1001: {}},
+		AllowedGroupIDs: map[int64]struct{}{-1001234567890: {}},
+	}
+
+	// 1. 私聊中管理员访问 -> 允许
+	m1 := &Message{
+		From: &User{ID: 1001},
+		Chat: &Chat{ID: 1001, Type: "private"},
+	}
+	if !cfg.CanAccess(m1) {
+		t.Fatal("私聊管理员访问被误拦截")
+	}
+
+	// 2. 私聊中非管理员访问 -> 拒绝
+	m2 := &Message{
+		From: &User{ID: 9999},
+		Chat: &Chat{ID: 9999, Type: "private"},
+	}
+	if cfg.CanAccess(m2) {
+		t.Fatal("私聊非管理员应被拒绝")
+	}
+
+	// 3. 白名单群内普通成员访问 -> 允许
+	m3 := &Message{
+		From: &User{ID: 8888},
+		Chat: &Chat{ID: -1001234567890, Type: "supergroup"},
+	}
+	if !cfg.CanAccess(m3) {
+		t.Fatal("白名单群内普通用户被误拦截")
+	}
+
+	// 4. 非白名单群内普通成员访问 -> 拒绝
+	m4 := &Message{
+		From: &User{ID: 8888},
+		Chat: &Chat{ID: -1009999999999, Type: "supergroup"},
+	}
+	if cfg.CanAccess(m4) {
+		t.Fatal("非白名单群内普通成员应被拦截")
+	}
+
+	// 5. 非白名单群内管理员访问 -> 允许
+	m5 := &Message{
+		From: &User{ID: 1001},
+		Chat: &Chat{ID: -1009999999999, Type: "group"},
+	}
+	if !cfg.CanAccess(m5) {
+		t.Fatal("管理员在任意群聊应被允许")
+	}
+}
+
 func TestRestartState(t *testing.T) {
 	statePath := filepath.Join(os.TempDir(), "test_restart_state.json")
 	data, _ := json.Marshal(map[string]any{
