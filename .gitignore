@@ -8,9 +8,14 @@ tg-transfer-bot-*
 
 # Environment and sensitive tokens
 .env
+.env.*
+!.env.example
 *.local
 *.key
 *.pem
+cookies.txt
+*.session
+*.token
 
 # Test artifacts and temporary downloads
 *.out
