@@ -87,8 +87,9 @@ func CheckAndPerformUpdate(ctx context.Context, bot *TelegramClient, chatID int6
 		return nil
 	}
 
-	// 匹配当前平台架构二进制 (例如: tg-transfer-bot-linux-amd64)
-	targetAssetName := fmt.Sprintf("tg-transfer-bot-%s-%s", runtime.GOOS, runtime.GOARCH)
+	// 匹配当前平台架构二进制 (例如: tgdown-linux-amd64 或兼容旧版 tg-transfer-bot-linux-amd64)
+	targetAssetName := fmt.Sprintf("tgdown-%s-%s", runtime.GOOS, runtime.GOARCH)
+	legacyAssetName := fmt.Sprintf("tg-transfer-bot-%s-%s", runtime.GOOS, runtime.GOARCH)
 	var downloadURL string
 	var assetSize int64
 
@@ -97,6 +98,15 @@ func CheckAndPerformUpdate(ctx context.Context, bot *TelegramClient, chatID int6
 			downloadURL = asset.BrowserDownloadURL
 			assetSize = asset.Size
 			break
+		}
+	}
+	if downloadURL == "" {
+		for _, asset := range release.Assets {
+			if asset.Name == legacyAssetName {
+				downloadURL = asset.BrowserDownloadURL
+				assetSize = asset.Size
+				break
+			}
 		}
 	}
 

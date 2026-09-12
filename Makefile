@@ -1,6 +1,6 @@
 .PHONY: all build build-all test clean run
 
-BINARY_NAME=tg-transfer-bot
+BINARY_NAME=tgdown
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo "v0.0.3")
 

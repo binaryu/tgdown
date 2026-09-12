@@ -1,3 +1,3 @@
-module tg-transfer-bot
+module github.com/binaryu/tgdown
 
 go 1.22

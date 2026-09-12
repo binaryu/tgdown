@@ -1,4 +1,4 @@
-# ⚡ TG Transfer Bot
+# ⚡ tgdown
 
 > 超极简 Linux VPS 打造的高性能 Telegram 离线下载与上传转存机器人。 纯vibe开发
 
@@ -134,25 +134,25 @@ BOT_MEMORY_LIMIT=            # Bot 内存软限制 (默认留空不限；1GB 机
 ### 4. 运行
 ```bash
 # 赋予可执行权限
-chmod +x ./tg-transfer-bot
-./tg-transfer-bot
+chmod +x ./tgdown
+./tgdown
 ```
 
 ---
 
 ## ⚙️ Systemd 后台服务守护 (可选)
 
-编辑 `/etc/systemd/system/tg-transfer-bot.service`：
+编辑 `/etc/systemd/system/tgdown.service`：
 ```ini
 [Unit]
-Description=Telegram Transfer Bot (Low Memory High-Performance)
+Description=tgdown (Low Memory High-Performance Telegram Downloader)
 After=network.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/tgdown
-ExecStart=/opt/tgdown/tg-transfer-bot
+ExecStart=/opt/tgdown/tgdown
 Restart=always
 RestartSec=5s
 Nice=10
@@ -164,7 +164,7 @@ WantedBy=multi-user.target
 启动服务：
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now tg-transfer-bot
+sudo systemctl enable --now tgdown
 ```
 
 ---
@@ -172,8 +172,8 @@ sudo systemctl enable --now tg-transfer-bot
 ## 📦 从源码编译
 
 ```bash
-git clone https://github.com/your-username/tg-transfer-bot.git
-cd tg-transfer-bot
+git clone https://github.com/binaryu/tgdown.git
+cd tgdown
 
 # 编译当前平台
 make build

@@ -1,14 +1,14 @@
 [Unit]
-Description=Telegram Transfer Bot (Low Memory High-Performance)
+Description=tgdown - Telegram High-Performance Downloader Bot (Low Memory)
 After=network.target telegram-bot-api.service
 Wants=telegram-bot-api.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/tg-transfer-bot
-EnvironmentFile=/opt/tg-transfer-bot/.env
-ExecStart=/opt/tg-transfer-bot/tg-transfer-bot
+WorkingDirectory=/opt/tgdown
+EnvironmentFile=/opt/tgdown/.env
+ExecStart=/opt/tgdown/tgdown
 
 Restart=always
 RestartSec=5s
