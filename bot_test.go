@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -435,5 +437,376 @@ func TestFindDownloadedFile(t *testing.T) {
 	}
 	if size != int64(len(targetContent)) {
 		t.Errorf("目标文件大小错误: %d", size)
+	}
+}
+
+func TestExtractMediaInfo(t *testing.T) {
+	// 1. Document 测试
+	msgDoc := &Message{
+		Document: &Document{
+			FileID:   "doc_123",
+			FileName: "report.pdf",
+			FileSize: 1024,
+		},
+	}
+	info := ExtractMediaInfo(msgDoc)
+	if info == nil || info.FileID != "doc_123" || info.FileName != "report.pdf" || info.FileSize != 1024 {
+		t.Fatalf("Document 媒体信息提取错误: %+v", info)
+	}
+
+	// 2. Video 测试
+	msgVideo := &Message{
+		Video: &Video{
+			FileID:   "vid_456",
+			FileName: "sample.mp4",
+			FileSize: 2048,
+		},
+	}
+	infoVideo := ExtractMediaInfo(msgVideo)
+	if infoVideo == nil || infoVideo.FileID != "vid_456" || infoVideo.FileName != "sample.mp4" {
+		t.Fatalf("Video 媒体信息提取错误: %+v", infoVideo)
+	}
+
+	// 3. Audio 测试
+	msgAudio := &Message{
+		Audio: &Audio{
+			FileID:   "aud_789",
+			FileName: "song.flac",
+			FileSize: 4096,
+		},
+	}
+	infoAudio := ExtractMediaInfo(msgAudio)
+	if infoAudio == nil || infoAudio.FileID != "aud_789" || infoAudio.FileName != "song.flac" {
+		t.Fatalf("Audio 媒体信息提取错误: %+v", infoAudio)
+	}
+
+	// 4. Photo 测试 (取最后一个最高分辨率)
+	msgPhoto := &Message{
+		Photo: []PhotoSize{
+			{FileID: "photo_low", Width: 320, Height: 240, FileSize: 100},
+			{FileID: "photo_high", Width: 1920, Height: 1080, FileSize: 5000},
+		},
+	}
+	infoPhoto := ExtractMediaInfo(msgPhoto)
+	if infoPhoto == nil || infoPhoto.FileID != "photo_high" || infoPhoto.FileSize != 5000 {
+		t.Fatalf("Photo 媒体信息提取错误: %+v", infoPhoto)
+	}
+
+	// 5. 空消息测试
+	if ExtractMediaInfo(nil) != nil {
+		t.Fatal("nil 消息应返回 nil")
+	}
+	if ExtractMediaInfo(&Message{}) != nil {
+		t.Fatal("无媒体消息应返回 nil")
+	}
+}
+
+func TestResolveDestinationPath(t *testing.T) {
+	baseDir, err := os.MkdirTemp("", "test_dest_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(baseDir)
+
+	// 1. 默认文件名
+	p1, err := resolveDestinationPath(baseDir, "", "video.mp4")
+	if err != nil || p1 != filepath.Join(baseDir, "video.mp4") {
+		t.Fatalf("默认路径解析失败: %v, %s", err, p1)
+	}
+
+	// 2. 自定义文件名
+	p2, err := resolveDestinationPath(baseDir, "custom.mkv", "video.mp4")
+	if err != nil || p2 != filepath.Join(baseDir, "custom.mkv") {
+		t.Fatalf("自定义文件名解析失败: %v, %s", err, p2)
+	}
+
+	// 3. 自定义子目录 (以 / 结尾)
+	p3, err := resolveDestinationPath(baseDir, "subfolder/", "video.mp4")
+	if err != nil || p3 != filepath.Join(baseDir, "subfolder", "video.mp4") {
+		t.Fatalf("子目录解析失败: %v, %s", err, p3)
+	}
+
+	// 4. 输入与当前 baseDir 相同名称 (例如用户输入 /save downloads)
+	baseName := filepath.Base(baseDir)
+	p4, err := resolveDestinationPath(baseDir, baseName, "video.mp4")
+	if err != nil || p4 != filepath.Join(baseDir, "video.mp4") {
+		t.Fatalf("baseDir 根目录同名解析失败: %v, %s", err, p4)
+	}
+
+	// 5. 无扩展名子目录 (例如 /save anime)
+	p5, err := resolveDestinationPath(baseDir, "anime", "video.mp4")
+	if err != nil || p5 != filepath.Join(baseDir, "anime", "video.mp4") {
+		t.Fatalf("无扩展名子目录智能解析失败: %v, %s", err, p5)
+	}
+
+	// 6. 目录穿越攻击防范 (必须拦截)
+	_, err = resolveDestinationPath(baseDir, "../../etc/passwd", "video.mp4")
+	if err == nil {
+		t.Fatal("未能拦截上级目录穿越攻击")
+	}
+	_, err = resolveDestinationPath(baseDir, "../evil.sh", "video.mp4")
+	if err == nil {
+		t.Fatal("未能拦截上级目录穿越攻击")
+	}
+}
+
+func TestAvoidFileOverwrite(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test_overwrite_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	filePath := filepath.Join(tmpDir, "test.txt")
+
+	// 文件不存在时，应直接返回原路径
+	p1 := avoidFileOverwrite(filePath)
+	if p1 != filePath {
+		t.Fatalf("文件未存在时路径不应改变: %s", p1)
+	}
+
+	// 创建该文件
+	_ = os.WriteFile(filePath, []byte("orig"), 0644)
+	p2 := avoidFileOverwrite(filePath)
+	expectedP2 := filepath.Join(tmpDir, "test (1).txt")
+	if p2 != expectedP2 {
+		t.Fatalf("冲突文件名未正确递增: %s != %s", p2, expectedP2)
+	}
+
+	// 再创建 test (1).txt
+	_ = os.WriteFile(expectedP2, []byte("1"), 0644)
+	p3 := avoidFileOverwrite(filePath)
+	expectedP3 := filepath.Join(tmpDir, "test (2).txt")
+	if p3 != expectedP3 {
+		t.Fatalf("冲突文件名未正确递增: %s != %s", p3, expectedP3)
+	}
+}
+
+func TestFileSaverEndToEnd(t *testing.T) {
+	mockContent := "hello telegram local download"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/getFile"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"file_id":   "doc_test_id",
+					"file_path": "documents/hello.txt",
+					"file_size": len(mockContent),
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/documents/hello.txt"):
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte(mockContent))
+		case strings.HasSuffix(r.URL.Path, "/sendMessage"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 999,
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/editMessageText"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok": true,
+				"result": map[string]any{
+					"message_id": 999,
+				},
+			})
+		case strings.HasSuffix(r.URL.Path, "/deleteMessage"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":     true,
+				"result": true,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	tmpDir, err := os.MkdirTemp("", "test_saver_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &Config{
+		BotToken:          "test_token",
+		APIBase:           server.URL,
+		LocalSaveDir:      tmpDir,
+		TaskTimeout:       10 * time.Second,
+		ThrottleInterval:  1 * time.Second,
+		DeleteProgressMsg: true,
+	}
+	bot := NewTelegramClient(cfg.BotToken, cfg.APIBase)
+	dispatcher := NewEventDispatcher(cfg)
+	saver := NewFileSaver(cfg, bot, dispatcher)
+
+	media := &MediaInfo{
+		FileID:    "doc_test_id",
+		FileName:  "hello.txt",
+		FileSize:  int64(len(mockContent)),
+		MediaType: "文档 (Document)",
+	}
+
+	err = saver.SaveTelegramFile(context.Background(), 12345, media, "")
+	if err != nil {
+		t.Fatalf("保存 Telegram 文件失败: %v", err)
+	}
+
+	savedFilePath := filepath.Join(tmpDir, "hello.txt")
+	savedData, err := os.ReadFile(savedFilePath)
+	if err != nil {
+		t.Fatalf("读取已保存文件失败: %v", err)
+	}
+
+	if string(savedData) != mockContent {
+		t.Fatalf("文件内容不匹配: 期望 %q, 得到 %q", mockContent, string(savedData))
+	}
+}
+
+func TestFindLatestGrowingFile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "test_growing_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	subDir := filepath.Join(tmpDir, "videos")
+	_ = os.MkdirAll(subDir, 0755)
+
+	// 忽略 binlog
+	_ = os.WriteFile(filepath.Join(tmpDir, "db.binlog"), []byte("binlog data"), 0644)
+
+	// 目标视频文件
+	videoFile := filepath.Join(subDir, "file_0.mp4")
+	_ = os.WriteFile(videoFile, []byte("video data chunk 1"), 0644)
+
+	size, p, found := findLatestGrowingFile(tmpDir, time.Now().Add(-5*time.Second))
+	if !found {
+		t.Fatal("未探测到正在写入的文件")
+	}
+	if p != videoFile {
+		t.Fatalf("探测文件路径不匹配: %s != %s", p, videoFile)
+	}
+	if size != int64(len("video data chunk 1")) {
+		t.Fatalf("探测文件大小不匹配: %d", size)
+	}
+}
+
+func TestEventDispatcherWebhook(t *testing.T) {
+	receivedCh := make(chan *FileEventPayload, 1)
+	receivedSecretCh := make(chan string, 1)
+
+	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSecretCh <- r.Header.Get("X-Webhook-Secret")
+		var p FileEventPayload
+		_ = json.NewDecoder(r.Body).Decode(&p)
+		receivedCh <- &p
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer webhookServer.Close()
+
+	cfg := &Config{
+		WebhookURL:    webhookServer.URL,
+		WebhookSecret: "test-secret-123",
+	}
+
+	dispatcher := NewEventDispatcher(cfg)
+	dispatcher.Dispatch(&FileEventPayload{
+		Event:     "file_saved",
+		Source:    "telegram",
+		FileName:  "test_movie.mp4",
+		FilePath:  "/tmp/downloads/test_movie.mp4",
+		FileSize:  1048576,
+		HumanSize: "1.00 MiB",
+		MediaType: "video",
+		ChatID:    12345678,
+	})
+
+	select {
+	case payload := <-receivedCh:
+		if payload.FileName != "test_movie.mp4" || payload.Event != "file_saved" {
+			t.Fatalf("接收到的 Webhook Payload 不符合预期: %+v", payload)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("超时未收到 Webhook 请求")
+	}
+
+	select {
+	case secret := <-receivedSecretCh:
+		if secret != "test-secret-123" {
+			t.Fatalf("X-Webhook-Secret 不匹配: %s", secret)
+		}
+	default:
+		t.Fatal("未收到 X-Webhook-Secret")
+	}
+}
+
+func TestAPIServerEndpoints(t *testing.T) {
+	// Mock Telegram API
+	tgServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"result": map[string]any{
+				"message_id": 888,
+			},
+		})
+	}))
+	defer tgServer.Close()
+
+	cfg := &Config{
+		BotToken:           "test_token",
+		APIBase:            tgServer.URL,
+		APISecretKey:       "secret-api-key",
+		LocalSaveDir:       "/tmp",
+		MaxConcurrentTasks: 1,
+		AdminIDs:           map[int64]struct{}{10001: {}},
+	}
+	bot := NewTelegramClient(cfg.BotToken, cfg.APIBase)
+	taskMgr := NewTaskManager(1)
+	dispatcher := NewEventDispatcher(cfg)
+	apiServer := NewAPIServer(cfg, bot, taskMgr, nil, nil, nil, dispatcher)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/status", apiServer.wrapAuth(apiServer.handleStatus))
+	mux.HandleFunc("/api/v1/notify", apiServer.wrapAuth(apiServer.handleNotify))
+	mux.HandleFunc("/api/v1/cancel", apiServer.wrapAuth(apiServer.handleCancel))
+	testHTTP := httptest.NewServer(mux)
+	defer testHTTP.Close()
+
+	// 1. 无认证调用 /api/v1/status 应返回 401
+	resp, err := http.Get(testHTTP.URL + "/api/v1/status")
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("无 API Key 调用未被拦截: code=%d", resp.StatusCode)
+	}
+
+	// 2. 带有效 X-API-Key 调用 /api/v1/status 应返回 200
+	req, _ := http.NewRequest(http.MethodGet, testHTTP.URL+"/api/v1/status", nil)
+	req.Header.Set("X-API-Key", "secret-api-key")
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil || resp2.StatusCode != http.StatusOK {
+		t.Fatalf("带有效 API Key 调用失败: code=%d", resp2.StatusCode)
+	}
+	var statusMap map[string]any
+	_ = json.NewDecoder(resp2.Body).Decode(&statusMap)
+	if statusMap["ok"] != true || statusMap["busy"] != false {
+		t.Fatalf("状态响应不正确: %+v", statusMap)
+	}
+
+	// 3. 调用 /api/v1/notify 触发通知
+	notifyBody := `{"chat_id": 10001, "message": "测试通知"}`
+	reqNotify, _ := http.NewRequest(http.MethodPost, testHTTP.URL+"/api/v1/notify", strings.NewReader(notifyBody))
+	reqNotify.Header.Set("X-API-Key", "secret-api-key")
+	reqNotify.Header.Set("Content-Type", "application/json")
+	respNotify, err := http.DefaultClient.Do(reqNotify)
+	if err != nil || respNotify.StatusCode != http.StatusOK {
+		t.Fatalf("调用 notify 失败: code=%d", respNotify.StatusCode)
+	}
+	var notifyResp map[string]any
+	_ = json.NewDecoder(respNotify.Body).Decode(&notifyResp)
+	if notifyResp["ok"] != true {
+		t.Fatalf("notify 响应失败: %+v", notifyResp)
 	}
 }

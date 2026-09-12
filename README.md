@@ -33,6 +33,7 @@
 | :--- | :--- | :--- |
 | `/down <URL> [重命名] [--doc/--video] [其他参数]` | 唤起 aria2c 下载并秒级转存（若为 YouTube/B站等链接自动智能调度 yt-dlp） | `/down https://example.com/movie.mp4 --doc` |
 | `/ytdl <URL> [720/1080] [--doc]` | 显式唤起宿主机 yt-dlp 提取流媒体视频（封顶 1080P，禁止 CPU 重编码） | `/ytdl https://www.youtube.com/watch?v=... 720` |
+| `/save [自定义文件名或子目录]` | **反向转存**：从 Telegram 下载文件/视频/音频至本地宿主机（支持 Reply 或发文件带附言） | `/save` 或 `/save movies/` |
 | `/curl <参数...>` | 原样透传执行系统 curl 诊断，超出 3500 字符自动截断 | `/curl -I https://cloudflare.com` |
 | `/wget <参数...>` | 原样透传执行系统 wget 诊断，Markdown 等宽回显 | `/wget -q -O - https://httpbin.org/ip` |
 | `/status` 或 `/ping` | 实时查看宿主机物理内存、Swap (`/proc/meminfo`) 与任务排队状态 | `/status` |
@@ -108,6 +109,8 @@ ALLOWED_GROUP_IDS=           # 允许使用 Bot 的群组 ID (逗号分隔，如
 API_BASE=http://127.0.0.1:8081
 DOWNLOAD_DIR=/opt/tg-bot-api/temp
 CONTAINER_DOWNLOAD_DIR=/tmp/telegram-bot-api
+LOCAL_SAVE_DIR=./downloads   # 从 Telegram 反向保存到本地的目标路径 (默认 ./downloads)
+LOCAL_API_DATA_DIR=./data    # Local API 工作数据目录 (配置后开启零拷贝/硬链接极速落盘，留空走回环 HTTP)
 
 # --- 高级可调参数 (根据机器性能自由调节) ---
 MAX_CONCURRENT_TASKS=1       # 并发任务上限 (低配小鸡建议 1，高配大机可设 3 或 5)
@@ -159,6 +162,54 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable --now tgdown
 ```
+
+---
+
+## 🔌 开放接口与外部系统联动 (Webhook & REST API)
+
+针对需要将 `tgdown` 作为**个人媒体库、自动化追剧管线或私有云中枢**的场景，提供极低内存占用的双向集成接口：
+
+### 1. 出站通知：事件 Webhook 与 Hook 脚本
+当文件保存（`/save`）或下载完成时，自动异步通知外部媒体库识别服务（如 AI 视频识别、TMDB 刮削等）。
+
+在 `.env` 中配置：
+```ini
+WEBHOOK_URL=http://127.0.0.1:8090/api/webhook/tgdown
+WEBHOOK_SECRET=your_secret_key
+ON_FILE_SAVED_HOOK=/opt/scripts/on_media_received.sh
+```
+
+**Webhook 推送 Payload 格式**：
+```json
+{
+  "event": "file_saved",
+  "source": "telegram",
+  "file_name": "movie_01.mkv",
+  "file_path": "/opt/tgdown/downloads/movie_01.mkv",
+  "file_size": 316930226,
+  "human_size": "302.25 MiB",
+  "media_type": "video",
+  "chat_id": 12345678,
+  "duration_sec": 42.0,
+  "completed_at": 1726143600
+}
+```
+
+### 2. 入站控制：轻量级 RESTful API
+基于 Go 标准库实现，零外部依赖。在 `.env` 中配置：
+```ini
+API_LISTEN_ADDR=127.0.0.1:8088
+API_SECRET_KEY=your_token
+```
+
+| 端点 | 请求方法 | 说明 | 示例 Payload |
+| :--- | :--- | :--- | :--- |
+| `/api/v1/status` | `GET` | 查询当前任务锁状态、物理内存与磁盘空间 | 无 |
+| `/api/v1/download`| `POST`| 提交外部下载任务（支持直接落盘本地或转存 TG） | `{"url":"https://...","send_to_tg":false}` |
+| `/api/v1/notify`  | `POST`| 外部服务向 TG 用户发送通知（如媒体库识别回执） | `{"chat_id":12345,"message":"入库成功"}` |
+| `/api/v1/cancel`  | `POST`| 中止当前执行的任务 | 无 |
+
+*认证方式*：在 HTTP 请求头中添加 `X-API-Key: your_token` 或 `Authorization: Bearer your_token`。
 
 ---
 

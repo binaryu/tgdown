@@ -53,13 +53,19 @@ func main() {
 
 	bot := NewTelegramClient(cfg.BotToken, cfg.APIBase)
 	taskMgr := NewTaskManager(cfg.MaxConcurrentTasks)
+	dispatcher := NewEventDispatcher(cfg)
 	downloader := NewDownloader(cfg, bot)
 	ytdl := NewYtDownloader(cfg, bot)
 	executor := NewExecutor(bot)
+	saver := NewFileSaver(cfg, bot, dispatcher)
+	apiServer := NewAPIServer(cfg, bot, taskMgr, downloader, ytdl, saver, dispatcher)
 
 	// 捕获系统退出信号
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// 启动可选的入站 REST API 服务 (如果配置了 API_LISTEN_ADDR)
+	apiServer.Start(ctx)
 
 	log.Printf("✅ 配置加载成功 | Local API: %s | 下载卷目录: %s | 超时: %s | 节流: %s",
 		cfg.APIBase, cfg.DownloadDir, cfg.TaskTimeout, cfg.ThrottleInterval)
@@ -69,6 +75,7 @@ func main() {
 	botCommands := []BotCommand{
 		{Command: "down", Description: "离线下载并转存 (支持aria2c与流媒体)"},
 		{Command: "ytdl", Description: "流媒体提取 (YouTube/B站/Twitter等)"},
+		{Command: "save", Description: "从 Telegram 下载并保存至本地 VPS"},
 		{Command: "status", Description: "查看系统内存/Swap与任务状态"},
 		{Command: "update", Description: "在线自更新至最新版本"},
 		{Command: "curl", Description: "执行系统原生 curl 诊断"},
@@ -113,11 +120,16 @@ func main() {
 				offset = update.UpdateID + 1
 			}
 
-			if update.Message == nil || update.Message.Text == "" {
+			if update.Message == nil {
 				continue
 			}
 
 			msg := update.Message
+			// 过滤纯空消息 (无文字、无 Caption 且未携带媒体)
+			if msg.Text == "" && msg.Caption == "" && ExtractMediaInfo(msg) == nil {
+				continue
+			}
+
 			// 核心约束 2：白名单权限校验 (支持私聊管理员与群聊白名单)
 			if !cfg.CanAccess(msg) {
 				senderID := int64(0)
@@ -129,7 +141,7 @@ func main() {
 				continue
 			}
 
-			handleMessage(ctx, cfg, bot, taskMgr, downloader, ytdl, executor, msg)
+			handleMessage(ctx, cfg, bot, taskMgr, downloader, ytdl, executor, saver, msg)
 		}
 	}
 }
@@ -142,10 +154,22 @@ func handleMessage(
 	downloader *Downloader,
 	ytdl *YtDownloader,
 	executor *Executor,
+	saver *FileSaver,
 	msg *Message,
 ) {
 	text := strings.TrimSpace(msg.Text)
+	if text == "" {
+		text = strings.TrimSpace(msg.Caption)
+	}
 	chatID := msg.Chat.ID
+
+	// 若未附带任何命令，但属于私聊发送媒体，给出温馨使用提示
+	if text == "" {
+		if ExtractMediaInfo(msg) != nil && msg.Chat != nil && msg.Chat.Type == "private" {
+			_, _ = bot.SendMessage(parentCtx, chatID, "💡 收到媒体文件！您可以回复 (Reply) 此消息并输入 `/save` 将其保存至宿主机本地。", "Markdown")
+		}
+		return
+	}
 
 	// 分离命令与参数
 	var cmd, args string
@@ -171,6 +195,8 @@ func handleMessage(
   多连接断点续传下载并转存（智能识别视频流与常规文件，流媒体自动调度）。
 • /ytdl <URL> [720/1080] [--doc]
   唤起系统 yt-dlp 提取 YouTube/B站/Twitter 等流媒体（最高1080P，禁CPU重编码）。
+• /save [自定义文件名或子目录]
+  从 Telegram 下载并保存至宿主机本地（回复媒体消息或直接发文件附带 /save）。
 • /curl <参数...>
   系统原生 curl 诊断执行，自动截断 3500 字符以内。
 • /wget <参数...>
@@ -194,6 +220,50 @@ func handleMessage(
 		} else {
 			_, _ = bot.SendMessage(parentCtx, chatID, "ℹ️ 当前没有正在运行的任务可取消。", "")
 		}
+
+	case "/save":
+		// 1. 查找目标媒体 (优先从 ReplyToMessage 提取，其次从当前消息提取)
+		var targetMsg *Message
+		if msg.ReplyToMessage != nil {
+			targetMsg = msg.ReplyToMessage
+		} else {
+			targetMsg = msg
+		}
+
+		media := ExtractMediaInfo(targetMsg)
+		if media == nil {
+			helpSave := "⚠️ **未检测到可保存的媒体文件**。\n\n" +
+				"💡 **使用方法**:\n" +
+				"1. **回复 (Reply)** 一条包含文档、视频、音频或照片的消息，输入 `/save [自定义文件名或子目录]`\n" +
+				"2. 或直接**发送文件**给 Bot，并在附带文字 (Caption) 中填写 `/save`"
+			_, _ = bot.SendMessage(parentCtx, chatID, helpSave, "Markdown")
+			return
+		}
+
+		taskCtx, cancel := context.WithTimeout(parentCtx, cfg.TaskTimeout)
+		taskName := fmt.Sprintf("/save %s", media.FileName)
+
+		// 全局任务互斥并发控制
+		acquired, taskID := taskMgr.TryAcquire(taskName, chatID, cancel)
+		if !acquired {
+			cancel()
+			_, _ = bot.SendMessage(parentCtx, chatID, "⚠️ **系统繁忙**: 当前任务队列已满，请等待现有任务完成或通过 /cancel 取消当前任务。", "Markdown")
+			return
+		}
+
+		go func() {
+			defer taskMgr.Release(taskID)
+			defer cancel()
+
+			log.Printf("▶️ 开始从 Telegram 保存媒体至本地: FileID=%s, 文件名=%s, 大小=%d, 自定义参数=%q",
+				media.FileID, media.FileName, media.FileSize, args)
+			err := saver.SaveTelegramFile(taskCtx, chatID, media, args)
+			if err != nil {
+				log.Printf("❌ 本地保存任务失败: %v", err)
+			} else {
+				log.Printf("✅ 本地保存任务顺利完成")
+			}
+		}()
 
 	case "/update":
 		// 管理级命令：在群内使用时也必须是管理员本人

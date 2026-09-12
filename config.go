@@ -19,6 +19,8 @@ type Config struct {
 	APIBase              string
 	DownloadDir          string
 	ContainerDownloadDir string
+	LocalSaveDir         string
+	LocalAPIDataDir      string
 	TaskTimeout          time.Duration
 	ThrottleInterval     time.Duration
 	Aria2Split           int
@@ -31,6 +33,11 @@ type Config struct {
 	YtdlCookiesFile      string
 	BotMemoryLimit       string
 	DeleteProgressMsg    bool
+	WebhookURL           string
+	WebhookSecret        string
+	OnFileSavedHook      string
+	APIListenAddr        string
+	APISecretKey         string
 }
 
 // loadDotEnv reads .env file from current directory if present
@@ -129,6 +136,25 @@ func LoadConfig() (*Config, error) {
 		containerDownloadDir = absDownloadDir
 	}
 
+	localSaveDir := strings.TrimSpace(os.Getenv("LOCAL_SAVE_DIR"))
+	if localSaveDir == "" {
+		localSaveDir = "./downloads"
+	}
+	absLocalSaveDir, err := filepath.Abs(localSaveDir)
+	if err != nil {
+		return nil, fmt.Errorf("解析 LOCAL_SAVE_DIR 绝对路径失败: %w", err)
+	}
+	if err := os.MkdirAll(absLocalSaveDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建保存目录 %s 失败: %w", absLocalSaveDir, err)
+	}
+
+	localAPIDataDir := strings.TrimSpace(os.Getenv("LOCAL_API_DATA_DIR"))
+	if localAPIDataDir != "" {
+		if abs, err := filepath.Abs(localAPIDataDir); err == nil {
+			localAPIDataDir = abs
+		}
+	}
+
 	taskTimeout := 30 * time.Minute
 	if tStr := strings.TrimSpace(os.Getenv("TASK_TIMEOUT")); tStr != "" {
 		d, err := time.ParseDuration(tStr)
@@ -197,6 +223,12 @@ func LoadConfig() (*Config, error) {
 
 	botMemoryLimit := strings.TrimSpace(os.Getenv("BOT_MEMORY_LIMIT"))
 
+	webhookURL := strings.TrimSpace(os.Getenv("WEBHOOK_URL"))
+	webhookSecret := strings.TrimSpace(os.Getenv("WEBHOOK_SECRET"))
+	onFileSavedHook := strings.TrimSpace(os.Getenv("ON_FILE_SAVED_HOOK"))
+	apiListenAddr := strings.TrimSpace(os.Getenv("API_LISTEN_ADDR"))
+	apiSecretKey := strings.TrimSpace(os.Getenv("API_SECRET_KEY"))
+
 	deleteProgressMsg := true
 	if delStr := strings.TrimSpace(os.Getenv("DELETE_PROGRESS_MSG")); delStr != "" {
 		if strings.ToLower(delStr) == "false" || delStr == "0" {
@@ -211,6 +243,8 @@ func LoadConfig() (*Config, error) {
 		APIBase:              apiBase,
 		DownloadDir:          absDownloadDir,
 		ContainerDownloadDir: containerDownloadDir,
+		LocalSaveDir:         absLocalSaveDir,
+		LocalAPIDataDir:      localAPIDataDir,
 		TaskTimeout:          taskTimeout,
 		ThrottleInterval:     throttleInterval,
 		Aria2Split:           aria2Split,
@@ -223,6 +257,11 @@ func LoadConfig() (*Config, error) {
 		YtdlCookiesFile:      ytdlCookiesFile,
 		BotMemoryLimit:       botMemoryLimit,
 		DeleteProgressMsg:    deleteProgressMsg,
+		WebhookURL:           webhookURL,
+		WebhookSecret:        webhookSecret,
+		OnFileSavedHook:      onFileSavedHook,
+		APIListenAddr:        apiListenAddr,
+		APISecretKey:         apiSecretKey,
 	}, nil
 }
 
